@@ -1,4 +1,4 @@
-"""Command line: ``bt run | ladder | parity | calibrate | sweep | walk-forward | synth | serve | reproduce | report``."""
+"""Command line of the backtest orchestrator: run, ladder, parity, calibrate, sweep, serve, reproduce."""
 
 from __future__ import annotations
 
@@ -67,7 +67,9 @@ def _spec(
     seed: int | None,
 ) -> RunSpec:
     spec0 = MarketSpec.from_settings(
-        settings.synthetic, settings.market.default_universe[0], settings.market.venue,
+        settings.synthetic,
+        settings.market.default_universe[0],
+        settings.market.venue,
         settings.bar_interval_ns,
     )
     start = start or ns_to_iso(spec0.start_ns)
@@ -195,8 +197,14 @@ def sweep(
     spec = _spec(settings, strategy, None, symbol, start, end, known_at, None)
     result = run_sweep(orch, spec, points, fidelity)
     best = result.best()
-    _echo({"n_trials": len(result.trials), "n_invalid": result.n_invalid, "best": best.params,
-           "best_metrics": best.metrics})
+    _echo(
+        {
+            "n_trials": len(result.trials),
+            "n_invalid": result.n_invalid,
+            "best": best.params,
+            "best_metrics": best.metrics,
+        }
+    )
 
 
 @app.command("walk-forward")
@@ -211,8 +219,13 @@ def walk_forward_cmd(
     settings, orch = _context()
     points = grid_points(settings.strategy_settings(strategy).grid)
     result = walk_forward(orch, _spec(settings, strategy, None, symbol, start, end, known_at, None), points)
-    _echo({"windows": [w.__dict__ for w in result.windows], "oos_sharpe": result.oos_sharpe.as_dict(),
-           "n_trials": result.n_trials})
+    _echo(
+        {
+            "windows": [w.__dict__ for w in result.windows],
+            "oos_sharpe": result.oos_sharpe.as_dict(),
+            "n_trials": result.n_trials,
+        }
+    )
 
 
 @app.command()
@@ -223,7 +236,14 @@ def synth(
     settings = load_settings()
     configure_logging(settings)
     paths = write_synthetic(settings, list(settings.market.default_universe), n_bars)
-    _echo({"datasets": paths.datasets, "fills": paths.fills_root, "start": paths.start, "end": paths.end})
+    _echo(
+        {
+            "datasets": paths.datasets,
+            "fills": paths.fills_root,
+            "start": paths.start,
+            "end": paths.end,
+        }
+    )
 
 
 @app.command()

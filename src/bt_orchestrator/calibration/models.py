@@ -45,18 +45,14 @@ class SlippageModel(_Model):
     coef: list[float]
     resid_std_bps: float
 
-    def predict_bps(
-        self, half_spread_bps: float, participation: float, vol_bps_sqrt_s: float
-    ) -> float:
+    def predict_bps(self, half_spread_bps: float, participation: float, vol_bps_sqrt_s: float) -> float:
         """Expected slippage versus the mid, including the half spread."""
         return half_spread_bps * self.coef[0] + self.impact_bps(participation, vol_bps_sqrt_s)
 
     def impact_bps(self, participation: float, vol_bps_sqrt_s: float) -> float:
         """The part of the slippage not explained by crossing the spread."""
         return (
-            self.intercept
-            + self.coef[1] * math.sqrt(max(participation, 0.0))
-            + self.coef[2] * vol_bps_sqrt_s
+            self.intercept + self.coef[1] * math.sqrt(max(participation, 0.0)) + self.coef[2] * vol_bps_sqrt_s
         )
 
 

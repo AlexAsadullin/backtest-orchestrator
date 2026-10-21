@@ -11,10 +11,7 @@ NANOS_PER_SECOND = 1_000_000_000
 
 def parse_iso(value: str | datetime) -> datetime:
     """Parse an ISO-8601 string (``Z`` allowed) into an aware UTC datetime; naive input is rejected."""
-    if isinstance(value, datetime):
-        dt = value
-    else:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    dt = value if isinstance(value, datetime) else datetime.fromisoformat(value.replace("Z", "+00:00"))
     if dt.tzinfo is None:
         raise ValueError(f"timestamp {value!r} must be timezone-aware")
     return dt.astimezone(UTC)
@@ -27,12 +24,14 @@ def to_ns(value: str | datetime) -> int:
 
 def ns_to_datetime(ns: int) -> datetime:
     """Convert nanoseconds since the epoch into an aware UTC datetime (microsecond precision)."""
-    return pd.Timestamp(ns, unit="ns", tz="UTC").to_pydatetime()
+    dt: datetime = pd.Timestamp(ns, unit="ns", tz="UTC").to_pydatetime()
+    return dt
 
 
 def ns_to_iso(ns: int) -> str:
     """Render nanoseconds since the epoch as an ISO-8601 UTC string with nanosecond precision."""
-    return pd.Timestamp(ns, unit="ns", tz="UTC").isoformat().replace("+00:00", "Z")
+    text: str = pd.Timestamp(ns, unit="ns", tz="UTC").isoformat()
+    return text.replace("+00:00", "Z")
 
 
 def utc_now() -> datetime:

@@ -26,9 +26,7 @@ class Interval:
         return {"estimate": self.estimate, "low": self.low, "high": self.high, "level": self.level}
 
 
-def stationary_indices(
-    n: int, block_len: float, n_boot: int, rng: np.random.Generator
-) -> NDArray[np.int64]:
+def stationary_indices(n: int, block_len: float, n_boot: int, rng: np.random.Generator) -> NDArray[np.int64]:
     """``(n_boot, n)`` resampling indices of the stationary bootstrap."""
     if n <= 0:
         raise ValueError("series must not be empty")

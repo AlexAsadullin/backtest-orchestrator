@@ -98,7 +98,7 @@ def realised_vol(ts_ns: np.ndarray, mid: np.ndarray, window: int) -> np.ndarray:
     dt = np.diff(t)
     sq = pd.Series(np.r_[np.nan, dlog**2]).rolling(window, min_periods=2).sum()
     tt = pd.Series(np.r_[np.nan, dt]).rolling(window, min_periods=2).sum()
-    vol = np.sqrt(sq / tt.where(tt > 0)).to_numpy()
+    vol: np.ndarray = np.sqrt(sq / tt.where(tt > 0)).to_numpy()
     out = np.empty_like(vol)
     out[order] = vol
     return out
@@ -172,7 +172,7 @@ def build_samples(data: CalibrationInput, adv: float, cfg: CalibrationSettings) 
 
 def split_out_of_time(frame: pd.DataFrame, test_fraction: float) -> tuple[pd.DataFrame, pd.DataFrame]:
     ordered = frame.sort_values("ts", kind="stable").reset_index(drop=True)
-    cut = int(round(len(ordered) * (1.0 - test_fraction)))
+    cut = round(len(ordered) * (1.0 - test_fraction))
     return ordered.iloc[:cut].reset_index(drop=True), ordered.iloc[cut:].reset_index(drop=True)
 
 
@@ -226,7 +226,10 @@ def predict_fill_prob(model: FillProbModel, frame: pd.DataFrame) -> np.ndarray:
         [
             model.predict(d, q, v)
             for d, q, v in zip(
-                frame["distance_to_touch_bps"], frame["queue_ahead"], frame["vol_bps_sqrt_s"], strict=True
+                frame["distance_to_touch_bps"],
+                frame["queue_ahead"],
+                frame["vol_bps_sqrt_s"],
+                strict=True,
             )
         ]
     )

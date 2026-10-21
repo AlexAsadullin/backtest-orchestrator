@@ -225,7 +225,7 @@ constraint-dependencies = [
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 110
 target-version = "py313"
 src = ["src", "tests"]
 
@@ -254,6 +254,7 @@ module = [
     "pyarrow.*",
     "sklearn.*",
     "scipy.*",
+    "yaml.*",
 ]
 ignore_missing_imports = true
 

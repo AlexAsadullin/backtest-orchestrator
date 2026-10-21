@@ -53,13 +53,19 @@ def reproduce(settings: Settings) -> str:
         write_report(s.reports_dir / "reproduce", f"ladder-{strategy}", report.model_dump(mode="json"), md)
         sections.append(md)
 
-    sections += ["## Cross-engine parity (vectorbt vs NautilusTrader, matched costs, touch fills)", ""]
+    sections += [
+        "## Cross-engine parity (vectorbt vs NautilusTrader, matched costs, touch fills)",
+        "",
+    ]
     parity_reports = []
     for strategy in s.reproduce.parity_strategies:
         parity_reports += run_parity(orch, spec(strategy, "parity"))
     md = parity_markdown(parity_reports)
     write_report(
-        s.reports_dir / "reproduce", "parity", [r.model_dump(mode="json") for r in parity_reports], md
+        s.reports_dir / "reproduce",
+        "parity",
+        [r.model_dump(mode="json") for r in parity_reports],
+        md,
     )
     sections.append(md)
 

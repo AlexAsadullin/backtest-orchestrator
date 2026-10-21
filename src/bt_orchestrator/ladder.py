@@ -108,7 +108,9 @@ class _Stats:
             bootstrap_ci(r, total_return, **self._kw()),
         )
 
-    def drop(self, prev: pd.Series, cur: pd.Series) -> tuple[Interval, Interval, Literal["paired", "independent"]]:
+    def drop(
+        self, prev: pd.Series, cur: pd.Series
+    ) -> tuple[Interval, Interval, Literal["paired", "independent"]]:
         """CI of ``prev - cur`` (positive = performance lost moving up)."""
         common = prev.index.intersection(cur.index)
         paired = len(common) >= 0.9 * max(len(prev), len(cur))

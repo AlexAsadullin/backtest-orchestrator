@@ -66,9 +66,9 @@ class TrialBuilder:
         else:
             path = self._dir / trial_id / "returns.parquet"
             path.parent.mkdir(parents=True, exist_ok=True)
-            pd.DataFrame({"ts": pd.to_datetime(x.returns.index, unit="ns", utc=True), "ret": values}).to_parquet(
-                path, index=False
-            )
+            pd.DataFrame(
+                {"ts": pd.to_datetime(x.returns.index, unit="ns", utc=True), "ret": values}
+            ).to_parquet(path, index=False)
             returns_path = str(path)
         actor = x.actor or Actor(kind=self._cfg.actor.kind, id=self._cfg.actor.id)
         return TrialRecord(

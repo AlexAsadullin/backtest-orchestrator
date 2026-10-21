@@ -27,9 +27,7 @@ class ReactiveSimEngine:
         self._max_duration_s = max_duration_s
 
     def run(self, job: EngineJob) -> EngineResult:
-        duration_s = min(
-            len(job.bars) * job.bar_interval_ns // NANOS_PER_SECOND, self._max_duration_s
-        )
+        duration_s = min(len(job.bars) * job.bar_interval_ns // NANOS_PER_SECOND, self._max_duration_s)
         request = SimulationRequest(
             scenario=self._scenario,
             seed=job.seed,

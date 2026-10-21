@@ -174,9 +174,7 @@ class TargetFollower(EventHandler):
     def __init__(self, bar_ts: NDArray[np.int64], target: NDArray[np.float64]) -> None:
         if len(bar_ts) != len(target):
             raise ValueError("bar_ts and target must have the same length")
-        self._targets = {
-            int(ts): float(t) for ts, t in zip(bar_ts, target, strict=True) if np.isfinite(t)
-        }
+        self._targets = {int(ts): float(t) for ts, t in zip(bar_ts, target, strict=True) if np.isfinite(t)}
 
     def on_bar(self, ctx: StrategyContext, bar: BarView) -> None:
         target = self._targets.get(bar.ts)

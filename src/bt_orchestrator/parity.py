@@ -89,7 +89,12 @@ def executions(fills: pd.DataFrame, ts_close: np.ndarray) -> pd.DataFrame:
     bar = np.minimum(np.searchsorted(ts_close, fills["ts"].to_numpy(), side="left"), len(ts_close) - 1)
     frame = fills.assign(bar=bar, notional=fills["qty"] * fills["price"])
     grouped = frame.groupby(["bar", "side"], sort=True)
-    out = grouped.agg(qty=("qty", "sum"), notional=("notional", "sum"), fee=("fee", "sum"), n_fills=("qty", "size"))
+    out = grouped.agg(
+        qty=("qty", "sum"),
+        notional=("notional", "sum"),
+        fee=("fee", "sum"),
+        n_fills=("qty", "size"),
+    )
     out["vwap"] = out["notional"] / out["qty"]
     return out.reset_index().loc[:, cols]
 

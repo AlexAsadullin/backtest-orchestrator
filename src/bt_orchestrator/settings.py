@@ -283,6 +283,16 @@ class ReproduceSettings(_Section):
     sweep_strategy: str
 
 
+class ExperimentSettings(_Section):
+    subtree: str
+    ledger_inbox_subdir: str
+    seeds: list[int]
+    n_bars: int
+    speed_repeats: int
+    strategies: list[str]
+    docs_tables: str
+
+
 class Settings(BaseSettings):
     """All runtime configuration of the orchestrator."""
 
@@ -318,6 +328,7 @@ class Settings(BaseSettings):
     strategies: dict[str, StrategySettings]
     synthetic: SyntheticSettings
     reproduce: ReproduceSettings
+    experiments: ExperimentSettings
 
     @classmethod
     def settings_customise_sources(
@@ -387,7 +398,6 @@ class Settings(BaseSettings):
             return self.market.instruments[symbol]
         except KeyError as exc:
             raise KeyError(f"symbol {symbol!r} is not configured under market.instruments") from exc
-
 
 
 def load_settings(**overrides: Any) -> Settings:

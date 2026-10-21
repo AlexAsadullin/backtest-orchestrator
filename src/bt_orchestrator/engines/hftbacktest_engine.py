@@ -66,7 +66,7 @@ def tape_to_events(tape: Tape) -> NDArray[np.void]:
     raw["qty"] = np.r_[book["size"].to_numpy(dtype="float64"), trades["size"].to_numpy(dtype="float64")]
     by_exch = np.argsort(raw["exch_ts"], kind="stable")
     by_local = np.argsort(raw["local_ts"], kind="stable")
-    events = correct_event_order(raw, by_exch, by_local)
+    events: NDArray[np.void] = correct_event_order(raw, by_exch, by_local)
     validate_event_order(events)
     return events
 
@@ -238,7 +238,11 @@ class HftBacktestEngine:
             if cfg.queue_model == "power_prob"
             else asset.risk_adverse_queue_model()
         )
-        return asset.no_partial_fill_exchange() if cfg.exchange == "no_partial_fill" else asset.partial_fill_exchange()
+        return (
+            asset.no_partial_fill_exchange()
+            if cfg.exchange == "no_partial_fill"
+            else asset.partial_fill_exchange()
+        )
 
     def run(self, job: EngineJob) -> EngineResult:
         if job.tape is None:

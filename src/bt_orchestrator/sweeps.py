@@ -120,9 +120,7 @@ def _slice(bundle: DataBundle, lo: int, hi: int) -> DataBundle:
     return replace(bundle, bars=bundle.bars.iloc[lo:hi].reset_index(drop=True))
 
 
-def walk_forward(
-    orch: Orchestrator, spec: RunSpec, points: list[dict[str, Any]]
-) -> WalkForwardResult:
+def walk_forward(orch: Orchestrator, spec: RunSpec, points: list[dict[str, Any]]) -> WalkForwardResult:
     s = orch.settings
     wf = s.walk_forward
     if wf.fidelity not in (Fidelity.VECTORISED, Fidelity.EVENT):

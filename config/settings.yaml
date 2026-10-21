@@ -267,3 +267,14 @@ reproduce:
   parity_strategies: [sma_cross, limit_mean_reversion]
   run_all_levels: true
   sweep_strategy: sma_cross
+
+# Experiments behind docs/report.md (make report). They run in their own data subtree and log their
+# trials to a private inbox, because they test the method, not research ideas.
+experiments:
+  subtree: backtest-orchestrator/experiments
+  ledger_inbox_subdir: backtest-orchestrator/experiments/ledger-inbox
+  seeds: [101, 102, 103, 104, 105, 106, 107, 108]
+  n_bars: 1440
+  speed_repeats: 5
+  strategies: [sma_cross, limit_mean_reversion]
+  docs_tables: docs/results.md

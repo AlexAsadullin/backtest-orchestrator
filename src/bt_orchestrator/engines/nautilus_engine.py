@@ -147,7 +147,7 @@ class CalibratedFillModel(FillModel):  # type: ignore[misc]  # Cython base class
         return book
 
 
-class _AdapterConfig(StrategyConfig, frozen=True):  # type: ignore[misc]
+class _AdapterConfig(StrategyConfig, frozen=True):
     pass
 
 
@@ -383,12 +383,15 @@ class NautilusEngine:
                 fee_model=MakerTakerFeeModel(),
             )
             engine.add_instrument(instrument)
-            engine.add_data(
-                self._trades(job, instrument.id) if trades_mode else self._bars(job, bar_type)
-            )
+            engine.add_data(self._trades(job, instrument.id) if trades_mode else self._bars(job, bar_type))
             handler = job.strategy.event_handler(job.bars, job.params, spec)
             strategy = _HandlerStrategy(
-                handler, spec, instrument.id, bar_type, job.bar_interval_ns, int(job.bars["ts"].iloc[0])
+                handler,
+                spec,
+                instrument.id,
+                bar_type,
+                job.bar_interval_ns,
+                int(job.bars["ts"].iloc[0]),
             )
             engine.add_strategy(strategy)
             with warnings.catch_warnings():
@@ -409,7 +412,11 @@ class NautilusEngine:
             symbol=spec.symbol,
             fills=fills,
             ledger=ledger,
-            native={"pnl": native_pnl, "fees": float(fills["fee"].sum()), "n_fills": float(len(fills))},
+            native={
+                "pnl": native_pnl,
+                "fees": float(fills["fee"].sum()),
+                "n_fills": float(len(fills)),
+            },
             wall_time_s=time.perf_counter() - started,
             initial_cash=job.initial_cash,
             meta={"data_mode": self._cfg.data_mode} | fill_meta,

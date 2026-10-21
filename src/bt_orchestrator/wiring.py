@@ -46,7 +46,9 @@ def build_sim(settings: Settings) -> SimClient:
     if settings.sim.mode == "http":
         return SimHttpClient(settings.sim.base_url, settings.sim.timeout_s)
     base = MarketSpec.from_settings(
-        settings.synthetic, settings.market.default_universe[0], settings.market.venue,
+        settings.synthetic,
+        settings.market.default_universe[0],
+        settings.market.venue,
         settings.bar_interval_ns,
     )
     instruments = {sym: instrument_spec(settings, sym) for sym in settings.market.instruments}

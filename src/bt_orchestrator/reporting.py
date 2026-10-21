@@ -33,7 +33,7 @@ def ladder_markdown(report: LadderReport) -> str:
         f"Promoted to: **{report.promoted_to.value if report.promoted_to else 'none'}**.",
         "",
         "| Level | Engine | Status | Sharpe [95% CI] | Sharpe drop vs previous [CI] | Total return [CI] "
-        "| Max DD | Trades | Fees | Wall s |",
+        "| Max DD | Fills | Fees | Wall s |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for lv in report.levels:
@@ -71,7 +71,8 @@ def calibration_markdown(bundle: FillModelBundle) -> str:
     return "\n".join(
         [
             f"Fill model v{bundle.version} for {bundle.venue}/{bundle.symbol} "
-            f"({bundle.label_basis}, {bundle.n_limit_orders} limit orders, {bundle.n_taker_fills} taker fills).",
+            f"({bundle.label_basis}, {bundle.n_limit_orders} limit orders, "
+            f"{bundle.n_taker_fills} taker fills).",
             "",
             "| Held-out metric | Calibrated | Naive |",
             "|---|---|---|",
