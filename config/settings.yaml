@@ -1,0 +1,269 @@
+# Defaults for bt_orchestrator (Tradeq I5). Every value can be overridden through the environment
+# with the BT_ prefix and "__" as the nested delimiter, e.g. BT_SERVICE__PORT=9606.
+# TRADEQ_DATA_DIR (the platform data root) is read from the environment or .env.
+
+service:
+  host: 127.0.0.1
+  port: 8606
+
+logging:
+  level: INFO
+  json_output: false
+
+paths:
+  subtree: backtest-orchestrator      # this project's folder under TRADEQ_DATA_DIR
+  reports: reports
+  models: models/fills
+  synthetic: synthetic
+  trials: trials
+  sim_fake: sim-fake
+
+# Sibling services (contracts 6.1, 6.3, 6.5). "mode" chooses HTTP or the offline fallback.
+ledger:
+  base_url: http://127.0.0.1:8601
+  mode: auto                          # http | inbox | auto (HTTP, falling back to the inbox)
+  timeout_s: 5.0
+  inbox_subdir: research-ledger/inbox
+  source: i5
+  family_template: "i5/{strategy}/{universe}"
+  strategy_id_template: "i5-{strategy}-{universe}"
+  actor:
+    kind: human
+    id: bt-cli
+  max_inline_returns: 20000           # longer return series go to Parquet (returns_path)
+  tags: [i5]
+
+pit:
+  base_url: http://127.0.0.1:8603
+  mode: local                         # http | local
+  timeout_s: 30.0
+  query_mode: research
+  datasets:
+    bars: bars_1m
+    trades: tape_trades
+    book: tape_book_delta
+
+local_source:
+  # Datasets served offline by the local Parquet source, relative to this project's data subtree.
+  datasets:
+    bars_1m:
+      path: synthetic/market/bars_1m.parquet
+      keys: [symbol, ts]
+    tape_trades:
+      path: synthetic/market/trades.parquet
+      keys: [symbol, trade_id]
+    tape_book_delta:
+      path: synthetic/market/book_delta.parquet
+      keys: [symbol, ts_local, side, price]
+  valid_time_column: valid_time
+  knowledge_time_column: knowledge_time
+
+sim:
+  base_url: http://127.0.0.1:8609
+  mode: fake                          # http | fake (in-process stand-in for S3)
+  timeout_s: 120.0
+  scenario: thin-book-stress
+  seed: 7
+  max_duration_s: 172800
+  # Scenarios offered by the in-process fake; multipliers apply to the synthetic market spec.
+  fake_scenarios:
+    baseline:
+      vol_multiplier: 1.0
+      spread_multiplier: 1.0
+      depth_multiplier: 1.0
+      trade_rate_multiplier: 1.0
+    thin-book-stress:
+      vol_multiplier: 1.6
+      spread_multiplier: 2.0
+      depth_multiplier: 0.4
+      trade_rate_multiplier: 0.7
+
+fills:
+  root_subdir: shadow-exchange/fills  # contract 6.4 export, relative to TRADEQ_DATA_DIR
+  orders_subdir: shadow-exchange/orders  # optional extension: unfilled limit orders
+
+market:
+  venue: SYNTH
+  bar_interval_s: 60
+  seconds_per_year: 31536000          # crypto trades 24/7
+  seconds_per_day: 86400
+  default_universe: [BTC-USDT-PERP]
+  instruments:
+    BTC-USDT-PERP:
+      base: BTC
+      quote: USDT
+      tick_size: 0.1
+      lot_size: 0.001
+      price_precision: 1
+      size_precision: 3
+    ETH-USDT-PERP:
+      base: ETH
+      quote: USDT
+      tick_size: 0.01
+      lot_size: 0.01
+      price_precision: 2
+      size_precision: 2
+
+costs:
+  maker_fee: 0.0002
+  taker_fee: 0.0005
+
+account:
+  initial_cash: 1000000.0
+  leverage: 10.0
+
+engines:
+  nautilus:
+    data_mode: bars                   # bars | trades
+    trader_id: BT-001
+    log_level: ERROR
+  hftbacktest:
+    exchange: no_partial_fill         # no_partial_fill | partial_fill
+    queue_model: power_prob
+    queue_power: 2.0
+    entry_latency_ns: 5000000
+    response_latency_ns: 5000000
+    feed_latency_ns: 1000000
+    contract_size: 1.0
+  vectorbt:
+    direction: both
+
+calibration:
+  horizon_ns: 60000000000             # a limit order "fills" if it fills within one bar
+  vol_window: 50                      # arrival-mid observations in the rolling volatility
+  test_fraction: 0.3
+  seed: 11
+  min_samples: 200
+  logistic_c: 1.0
+  latency_quantile: 0.5               # latency quantile injected into the tick engine
+  max_iter: 1000
+
+metrics:
+  ci_level: 0.95
+  n_boot: 1000
+  block_len: 30
+  seed: 2026
+
+ladder:
+  levels: [vectorised, event, tick, reactive_sim]
+  run_all_levels: false               # true: keep climbing after a failed gate, for diagnostics
+  causality_cuts: 3                   # prefix-invariance checks of vectorised targets
+  promotion:
+    vectorised:
+      min_sharpe: 0.5
+      min_trades: 10
+      max_drawdown: 0.25
+    event:
+      min_sharpe: 0.3
+      min_trades: 10
+      max_drawdown: 0.25
+      max_sharpe_drop: 2.0
+    tick:
+      min_sharpe: 0.0
+      min_trades: 5
+      max_drawdown: 0.3
+      max_sharpe_drop: 2.0
+    reactive_sim:
+      min_sharpe: -1.0
+      min_trades: 1
+      max_drawdown: 0.4
+
+parity:
+  price_rel_tol: 1.0e-6               # relative price tolerance for "identical"
+  rounding_ticks: 1.0                 # differences up to this many ticks are rounding
+  qty_lots: 1.0                       # quantity differences up to this many lots are rounding
+  fee_rel_tol: 1.0e-4
+  pnl_rel_tol: 1.0e-3                 # relative to initial cash
+  timing_window_bars: 2
+  max_disagreement_rate: 0.05
+
+sweep:
+  objective: sharpe
+  random_samples: 20
+  seed: 5
+
+walk_forward:
+  train_bars: 1440
+  test_bars: 480
+  step_bars: 480
+  fidelity: vectorised
+
+strategies:
+  sma_cross:
+    defaults:
+      fast: 30
+      slow: 120
+      qty: 1.0
+    grid:
+      fast: [10, 20, 30, 60]
+      slow: [90, 120, 240]
+      qty: [1.0]
+    ranges:
+      fast: [5, 60]
+      slow: [80, 300]
+      qty: [1.0, 1.0]
+  limit_mean_reversion:
+    defaults:
+      lookback: 20
+      entry_z: 1.5
+      exit_z: 0.25
+      offset_bps: 1.0
+      qty: 1.0
+      order_ttl_bars: 1
+    grid:
+      lookback: [10, 20, 40]
+      entry_z: [1.0, 1.5, 2.0]
+      exit_z: [0.25]
+      offset_bps: [0.5, 1.0]
+      qty: [1.0]
+      order_ttl_bars: [1]
+    ranges:
+      lookback: [10, 60]
+      entry_z: [1.0, 2.5]
+      exit_z: [0.0, 0.5]
+      offset_bps: [0.0, 3.0]
+      qty: [1.0, 1.0]
+      order_ttl_bars: [1, 3]
+
+synthetic:
+  seed: 42
+  start: "2026-01-05T00:00:00Z"
+  n_bars: 2880
+  quote_interval_ms: 1000
+  initial_price: 60000.0
+  vol_bps_per_sqrt_s: 1.2
+  regime_bars: 240
+  trend_bps_per_bar: 1.5
+  half_spread_ticks: 1
+  max_extra_spread_ticks: 2
+  book_levels: 5
+  level_size_mean: 1.5
+  trade_rate_per_s: 0.8
+  trade_size_mean: 0.05
+  feed_latency_ns: 2000000
+  fills:
+    n_orders: 6000
+    limit_share: 0.7
+    venue: SYNTH
+    account_id: synthetic-account
+    strategy_id: synthetic-fills
+    base_hazard_per_s: 0.03
+    distance_coef: 0.35               # per bp of distance to touch
+    queue_coef: 0.45                  # per log1p(queue ahead)
+    vol_coef: 0.8                     # per bp/sqrt(s) of volatility
+    order_ttl_s: 300
+    max_distance_bps: 10.0
+    queue_mean: 3.0
+    half_spread_bps: 0.4
+    impact_coef_bps: 25.0             # bps per sqrt(participation)
+    slippage_noise_bps: 0.3
+    latency_median_ns: 4000000
+    latency_sigma: 0.35
+    qty_mean: 0.5
+    order_spacing_s: 20
+
+reproduce:
+  strategies: [sma_cross, limit_mean_reversion]
+  parity_strategies: [sma_cross, limit_mean_reversion]
+  run_all_levels: true
+  sweep_strategy: sma_cross
