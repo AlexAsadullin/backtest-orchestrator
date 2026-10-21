@@ -80,7 +80,9 @@ class StrategyContext(Protocol):
         """Signed unfilled quantity of open orders (orders in flight count as working)."""
         ...
 
-    def open_order_count(self) -> int: ...
+    def open_order_count(self) -> int:
+        """Open orders, not counting those with a cancel already requested."""
+        ...
 
     def submit_market(self, side: Side, qty: float) -> str: ...
 
@@ -137,17 +139,21 @@ class Strategy(ABC):
     def supports_vectorised(self) -> bool:
         return type(self).vectorised is not Strategy.vectorised
 
-    def vectorised(self, bars: pd.DataFrame, params: StrategyParams) -> VectorSignal:
+    def vectorised(
+        self, bars: pd.DataFrame, params: StrategyParams, instrument: InstrumentSpec
+    ) -> VectorSignal:
         """Vectorised target positions; strategies without one raise ``NotImplementedError``."""
         raise NotImplementedError(f"strategy {self.name!r} has no vectorised form")
 
-    def event_handler(self, bars: pd.DataFrame, params: StrategyParams) -> EventHandler:
+    def event_handler(
+        self, bars: pd.DataFrame, params: StrategyParams, instrument: InstrumentSpec
+    ) -> EventHandler:
         """Event callbacks for the bars an engine is about to replay.
 
         The default replays the vectorised target positions with market orders, so a strategy that only
         implements :meth:`vectorised` still runs on every event and tick engine.
         """
-        signal = self.vectorised(bars, params)
+        signal = self.vectorised(bars, params, instrument)
         return TargetFollower(bars["ts"].to_numpy(), signal.target)
 
     def describe(self) -> dict[str, Any]:
