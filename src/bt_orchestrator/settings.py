@@ -18,6 +18,7 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from bt_orchestrator.contracts.ledger import TrialSource
 from bt_orchestrator.domain import Fidelity
 from bt_orchestrator.timeutil import NANOS_PER_SECOND
 
@@ -64,7 +65,7 @@ class LedgerSettings(_Section):
     mode: Literal["http", "inbox", "auto"]
     timeout_s: float
     inbox_subdir: str
-    source: str
+    source: TrialSource
     family_template: str
     strategy_id_template: str
     actor: ActorSettings
@@ -193,7 +194,7 @@ class MetricsSettings(_Section):
 
 class PromotionCriteria(_Section):
     min_sharpe: float
-    min_trades: int
+    min_fills: int
     max_drawdown: float
     max_sharpe_drop: float | None = None
 

@@ -151,21 +151,21 @@ ladder:
   promotion:
     vectorised:
       min_sharpe: 0.5
-      min_trades: 10
+      min_fills: 10
       max_drawdown: 0.25
     event:
       min_sharpe: 0.3
-      min_trades: 10
+      min_fills: 10
       max_drawdown: 0.25
       max_sharpe_drop: 2.0
     tick:
       min_sharpe: 0.0
-      min_trades: 5
+      min_fills: 5
       max_drawdown: 0.3
       max_sharpe_drop: 2.0
     reactive_sim:
       min_sharpe: -1.0
-      min_trades: 1
+      min_fills: 1
       max_drawdown: 0.4
 
 parity:
@@ -233,7 +233,7 @@ synthetic:
   initial_price: 60000.0
   vol_bps_per_sqrt_s: 1.2
   regime_bars: 240
-  trend_bps_per_bar: 1.5
+  trend_bps_per_bar: 0.3
   half_spread_ticks: 1
   max_extra_spread_ticks: 2
   book_levels: 5

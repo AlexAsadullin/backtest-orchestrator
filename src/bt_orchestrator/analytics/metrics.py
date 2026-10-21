@@ -70,7 +70,7 @@ def compute_metrics(
         "ann_vol": float(np.std(r, ddof=1) * math.sqrt(periods_per_year)) if len(r) > 1 else 0.0,
         "max_drawdown": max_drawdown(equity),
         "pnl": float(equity[-1] - initial_cash),
-        "n_trades": len(fills),
+        "n_fills": len(fills),
         "fees": float(fills["fee"].sum()) if not fills.empty else 0.0,
         "turnover": notional / initial_cash,
         "exposure": float(np.mean(np.abs(position) > 0)) if len(position) else 0.0,

@@ -20,14 +20,16 @@ Disagreement kinds
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
 
-from bt_orchestrator.domain import InstrumentSpec
+from bt_orchestrator.domain import Fidelity, InstrumentSpec
 from bt_orchestrator.engines.base import EngineResult
+from bt_orchestrator.orchestrator import Orchestrator, RunSpec
 from bt_orchestrator.settings import ParitySettings
 
 Kind = Literal[
@@ -205,3 +207,27 @@ def compare_runs(
         disagreements=disagreements,
         tolerances=cfg.model_dump(),
     )
+
+
+def run_parity(
+    orch: Orchestrator,
+    spec: RunSpec,
+    fidelity_a: Fidelity = Fidelity.VECTORISED,
+    fidelity_b: Fidelity = Fidelity.EVENT,
+) -> list[ParityReport]:
+    """Run ``spec`` on two bar-level engines with identical costs and touch fills, then compare.
+
+    Calibrated fill models are switched off for both sides, because parity tests fill *semantics*
+    under matched settings, not realism. Both runs are logged to S6 with the ``parity`` tag.
+    """
+    bar_levels = {Fidelity.VECTORISED, Fidelity.EVENT}
+    if fidelity_a not in bar_levels or fidelity_b not in bar_levels:
+        raise ValueError("parity compares bar-level engines (vectorised, event)")
+    tagged = replace(spec, tags=(*spec.tags, "parity"))
+    bundles = {sym: orch.load(tagged, sym, Fidelity.EVENT) for sym in spec.universe}
+    run_a = orch.run_level(tagged, fidelity_a, calibrated=False, bundles=bundles)
+    run_b = orch.run_level(tagged, fidelity_b, calibrated=False, bundles=bundles)
+    return [
+        compare_runs(a, b, orch.instrument(a.symbol), orch.settings.parity, spec.strategy)
+        for a, b in zip(run_a.results, run_b.results, strict=True)
+    ]

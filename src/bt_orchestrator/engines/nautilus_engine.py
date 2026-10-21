@@ -286,16 +286,13 @@ class NautilusEngine:
         cfg: NautilusSettings,
         leverage: float,
         seconds_per_day: float,
-        *,
-        use_calibrated_fills: bool = True,
     ) -> None:
         self._cfg = cfg
         self._leverage = leverage
         self._seconds_per_day = seconds_per_day
-        self._use_calibrated = use_calibrated_fills
 
     def _fill_model(self, job: EngineJob) -> tuple[FillModel, dict[str, Any]]:
-        if job.fill_models is None or not self._use_calibrated:
+        if job.fill_models is None:
             return FillModel(prob_fill_on_limit=1.0, prob_slippage=0.0, random_seed=job.seed), {
                 "fill_model": "touch_fills"
             }
