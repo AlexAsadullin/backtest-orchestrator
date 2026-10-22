@@ -261,8 +261,11 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-ra --strict-markers -m 'not live'"
-markers = ["live: requires running sibling services or network (skipped by default)"]
+addopts = "-ra --strict-markers -m 'not live and not integration'"
+markers = [
+    "live: requires running sibling services or network (skipped by default)",
+    "integration: starts the real I2 and S6 services from their sibling repos (make integration)",
+]
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.coverage.run]

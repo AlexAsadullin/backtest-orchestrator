@@ -169,7 +169,8 @@ class Orchestrator:
                 strategy_id=self._trials.strategy_id(spec.strategy, spec.universe),
             )
         except LeakageError as exc:
-            self.ledger.report_leakage(exc.event)
+            if not exc.reported:
+                self.ledger.report_leakage(exc.event)
             raise
         if bundle.tape is not None:
             # The tick engine sees bars built from the very tape it replays.

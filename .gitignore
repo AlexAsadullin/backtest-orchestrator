@@ -17,3 +17,4 @@ dist/
 /data/
 *.parquet
 *.npz
+/tmp/

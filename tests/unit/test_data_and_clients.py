@@ -243,6 +243,7 @@ def test_pit_http_source_arrow() -> None:
     with pytest.raises(LeakageError) as err:
         src.query(q)
     assert err.value.event.kind == "end_after_known_at"
+    assert err.value.reported
     src.close()
 
 

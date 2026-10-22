@@ -39,9 +39,11 @@ class QueryResult:
 class LeakageError(RuntimeError):
     """A query would read data that was not knowable at ``known_at``."""
 
-    def __init__(self, event: LeakageEvent) -> None:
+    def __init__(self, event: LeakageEvent, *, reported: bool = False) -> None:
         super().__init__(f"leakage guard: {event.kind}: {event.detail}")
         self.event = event
+        # True when the refusing service (the real I2) already sent the event to S6 itself.
+        self.reported = reported
 
 
 class DataSource(Protocol):
@@ -171,7 +173,7 @@ class PitHttpSource:
         payload = q.model_copy(update={"format": self._fmt}).model_dump(mode="json", exclude_none=True)
         response = self._client.post("/v1/query", json=payload)
         if response.status_code == HTTP_CONFLICT:
-            raise LeakageError(LeakageEvent.model_validate(response.json()))
+            raise LeakageError(LeakageEvent.model_validate(response.json()), reported=True)
         response.raise_for_status()
         fingerprint = response.headers.get(FINGERPRINT_HEADER)
         if not fingerprint:
