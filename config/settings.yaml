@@ -275,6 +275,8 @@ experiments:
   ledger_inbox_subdir: backtest-orchestrator/experiments/ledger-inbox
   seeds: [101, 102, 103, 104, 105, 106, 107, 108]
   n_bars: 1440
-  speed_repeats: 5
   strategies: [sma_cross, limit_mean_reversion]
-  docs_tables: docs/results.md
+  # Faults planted in a copy of a run to test the parity detectors (E5).
+  fault_fee_bps: 2.0                  # extra fee rate on every fill
+  fault_price_ticks: 3                # adverse price error on a share of fills
+  fault_share: 0.1                    # share of fills hit by the price error or dropped

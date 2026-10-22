@@ -288,9 +288,10 @@ class ExperimentSettings(_Section):
     ledger_inbox_subdir: str
     seeds: list[int]
     n_bars: int
-    speed_repeats: int
     strategies: list[str]
-    docs_tables: str
+    fault_fee_bps: float
+    fault_price_ticks: int
+    fault_share: float
 
 
 class Settings(BaseSettings):

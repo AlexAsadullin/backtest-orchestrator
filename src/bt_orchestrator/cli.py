@@ -268,4 +268,4 @@ def report() -> None:
     from bt_orchestrator.experiments import run_experiments
 
     settings, _ = _context()
-    typer.echo(run_experiments(settings))
+    typer.echo(run_experiments(settings, progress=typer.echo))
