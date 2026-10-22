@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -32,6 +33,11 @@ def git_sha(repo: Path = REPO_ROOT) -> str | None:
     return out.stdout.strip() or None
 
 
+def finite_metrics(metrics: dict[str, float | int | None]) -> dict[str, float | int | None]:
+    """Replace NaN and infinities by ``None``: JSON has no NaN, and S6 and I9 parse strict JSON."""
+    return {k: None if isinstance(v, float) and not math.isfinite(v) else v for k, v in metrics.items()}
+
+
 @dataclass(frozen=True)
 class TrialInputs:
     strategy: str
@@ -54,6 +60,9 @@ class TrialBuilder:
         self._dir = trials_dir
         self._code = code_version if code_version is not None else git_sha()
 
+    def strategy_id(self, strategy: str, universe: list[str]) -> str:
+        return self._cfg.strategy_id_template.format(strategy=strategy, universe="+".join(universe))
+
     def build(self, x: TrialInputs) -> TrialRecord:
         universe = "+".join(x.universe)
         trial_id = str(uuid.uuid4())
@@ -74,7 +83,7 @@ class TrialBuilder:
         return TrialRecord(
             trial_id=trial_id,
             family=self._cfg.family_template.format(strategy=x.strategy, universe=universe),
-            strategy_id=self._cfg.strategy_id_template.format(strategy=x.strategy, universe=universe),
+            strategy_id=self.strategy_id(x.strategy, x.universe),
             source=self._cfg.source,
             actor=actor,
             params=x.params,
@@ -86,6 +95,6 @@ class TrialBuilder:
             periods_per_year=x.periods_per_year,
             returns=returns,
             returns_path=returns_path,
-            metrics=x.metrics,
+            metrics=finite_metrics(x.metrics),
             tags=[*self._cfg.tags, *x.tags],
         )

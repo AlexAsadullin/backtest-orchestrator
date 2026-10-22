@@ -38,7 +38,12 @@ def configure_logging(settings: Settings) -> None:
 
 def build_source(settings: Settings) -> DataSource:
     if settings.pit.mode == "http":
-        return PitHttpSource(settings.pit.base_url, settings.pit.timeout_s)
+        return PitHttpSource(
+            settings.pit.base_url,
+            settings.pit.timeout_s,
+            fmt=settings.pit.format,
+            timestamp_columns=tuple(settings.pit.timestamp_columns),
+        )
     return LocalParquetSource(settings.project_dir, settings.local_source)
 
 
@@ -65,7 +70,12 @@ def build_orchestrator(settings: Settings) -> Orchestrator:
     )
     return Orchestrator(
         settings=settings,
-        market=MarketData(build_source(settings), settings.pit),
+        market=MarketData(
+            build_source(settings),
+            settings.pit,
+            venue=settings.market.venue,
+            bar_interval_ns=settings.bar_interval_ns,
+        ),
         ledger=ledger,
         engines=EngineFactory(settings, build_sim(settings)),
         models=FillModelStore(settings.models_dir),

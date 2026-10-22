@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 from typing import Any
 
@@ -12,9 +13,21 @@ from bt_orchestrator.contracts.backtest import BacktestRequest, BacktestResponse
 from bt_orchestrator.data.source import LeakageError
 from bt_orchestrator.ladder import run_ladder
 from bt_orchestrator.orchestrator import LookAheadError, Orchestrator, RunSpec, new_run_id
+from bt_orchestrator.trials import finite_metrics
 
 HTTP_CONFLICT = 409
 HTTP_UNPROCESSABLE = 422
+
+
+def json_safe(value: Any) -> Any:
+    """Recursively replace non-finite floats by ``None`` (strict JSON for clients such as I9)."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [json_safe(v) for v in value]
+    return value
 
 
 def spec_from_request(req: BacktestRequest, default_seed: int) -> RunSpec:
@@ -42,11 +55,11 @@ def execute(orch: Orchestrator, req: BacktestRequest) -> BacktestResponse:
         return BacktestResponse(
             run_id=report.run_id,
             trial_id=top.trial_id,
-            metrics=top.metrics,
-            fidelity_report=report.model_dump(mode="json"),
+            metrics=finite_metrics(top.metrics),
+            fidelity_report=json_safe(report.model_dump(mode="json")),
         )
     run = orch.run_level(spec, req.fidelity)
-    return BacktestResponse(run_id=new_run_id(), trial_id=run.trial.trial_id, metrics=run.metrics)
+    return BacktestResponse(run_id=new_run_id(), trial_id=run.trial.trial_id, metrics=run.trial.metrics)
 
 
 def create_app(orch: Orchestrator) -> FastAPI:

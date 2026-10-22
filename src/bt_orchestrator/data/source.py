@@ -11,7 +11,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import httpx
 import pandas as pd
@@ -19,7 +19,7 @@ import pyarrow as pa
 import structlog
 
 from bt_orchestrator.contracts.ledger import LeakageEvent
-from bt_orchestrator.contracts.pit import FINGERPRINT_HEADER, PitQuery
+from bt_orchestrator.contracts.pit import FINGERPRINT_HEADER, LEAKAGE_FLAG_HEADER, PitFilter, PitQuery
 from bt_orchestrator.settings import LocalSourceSettings
 from bt_orchestrator.timeutil import to_ns, utc_now
 
@@ -29,8 +29,11 @@ HTTP_CONFLICT = 409
 
 @dataclass(frozen=True)
 class QueryResult:
+    """Rows plus I2's fingerprint; ``leakage_flags`` lists kinds from I2's ``X-Leakage-Flag`` header."""
+
     frame: pd.DataFrame
     fingerprint: str
+    leakage_flags: tuple[str, ...] = ()
 
 
 class LeakageError(RuntimeError):
@@ -57,6 +60,29 @@ def _leakage(q: PitQuery, kind: str, **detail: Any) -> LeakageError:
             observed_at=utc_now(),
         )
     )
+
+
+def filter_mask(frame: pd.DataFrame, filters: list[PitFilter]) -> pd.Series:
+    """Boolean mask of the rows matching every filter (I2 operator semantics)."""
+    mask = pd.Series(True, index=frame.index)
+    for f in filters:
+        col = frame[f.column]
+        match f.op:
+            case "in":
+                mask &= col.isin(f.value if isinstance(f.value, list) else [f.value])
+            case "==":
+                mask &= col == f.value
+            case "!=":
+                mask &= col != f.value
+            case "<":
+                mask &= col < f.value
+            case "<=":
+                mask &= col <= f.value
+            case ">":
+                mask &= col > f.value
+            case ">=":
+                mask &= col >= f.value
+    return mask
 
 
 def _file_digest(path: Path, cache: dict[tuple[str, int, int], str]) -> str:
@@ -99,9 +125,7 @@ class LocalParquetSource:
                 raise _leakage(q, "missing_knowledge_time")
             frame[kt] = frame[vt]
         mask = (frame[vt] >= start) & (frame[vt] < end) & (frame[kt] <= known_at)
-        for column, value in (q.filters or {}).items():
-            values = value if isinstance(value, list) else [value]
-            mask &= frame[column].isin(values)
+        mask &= filter_mask(frame, q.filters or [])
         frame = frame.loc[mask]
         keys = self._cfg.datasets[q.dataset].keys
         frame = frame.sort_values(kt, kind="stable").drop_duplicates(subset=keys, keep="last")
@@ -115,21 +139,52 @@ class LocalParquetSource:
 
 
 class PitHttpSource:
-    """Client for I2 ``POST /v1/query`` returning an Arrow IPC stream and a fingerprint header."""
+    """Client for I2 ``POST /v1/query``.
 
-    def __init__(self, base_url: str, timeout_s: float, client: httpx.Client | None = None) -> None:
+    ``fmt="arrow"`` reads the Arrow IPC stream (times stay int64 ns). ``fmt="json"`` reads I2's JSON body
+    (``{fingerprint, columns, rows, flags}``), in which timestamp columns are ISO-8601 strings; the columns
+    named in ``timestamp_columns`` are converted back to int64 ns, so both formats give the same frame.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        timeout_s: float,
+        *,
+        fmt: Literal["arrow", "json"] = "arrow",
+        timestamp_columns: tuple[str, ...] = (),
+        client: httpx.Client | None = None,
+    ) -> None:
         self._client = client or httpx.Client(base_url=base_url, timeout=timeout_s)
+        self._fmt = fmt
+        self._ts_columns = timestamp_columns
+
+    def _json_frame(self, body: dict[str, Any]) -> pd.DataFrame:
+        frame = pd.DataFrame(body.get("rows", []), columns=body.get("columns"))
+        for column in self._ts_columns:
+            if column in frame.columns:
+                stamps = pd.to_datetime(frame[column], utc=True, format="ISO8601")
+                frame[column] = stamps.astype("int64").where(stamps.notna())
+        return frame
 
     def query(self, q: PitQuery) -> QueryResult:
-        response = self._client.post("/v1/query", json=q.model_dump(mode="json", exclude_none=True))
+        payload = q.model_copy(update={"format": self._fmt}).model_dump(mode="json", exclude_none=True)
+        response = self._client.post("/v1/query", json=payload)
         if response.status_code == HTTP_CONFLICT:
             raise LeakageError(LeakageEvent.model_validate(response.json()))
         response.raise_for_status()
         fingerprint = response.headers.get(FINGERPRINT_HEADER)
         if not fingerprint:
             raise ValueError(f"I2 response for {q.dataset!r} lacks {FINGERPRINT_HEADER}")
-        reader = pa.ipc.open_stream(pa.BufferReader(response.content))
-        return QueryResult(frame=reader.read_all().to_pandas(), fingerprint=fingerprint)
+        raw_flags = response.headers.get(LEAKAGE_FLAG_HEADER, "")
+        flags = tuple(f.strip() for f in raw_flags.split(",") if f.strip())
+        if flags:
+            log.warning("i2_leakage_flag", dataset=q.dataset, flags=flags)
+        if self._fmt == "json":
+            frame = self._json_frame(response.json())
+        else:
+            frame = pa.ipc.open_stream(pa.BufferReader(response.content)).read_all().to_pandas()
+        return QueryResult(frame=frame, fingerprint=fingerprint, leakage_flags=flags)
 
     def close(self) -> None:
         self._client.close()

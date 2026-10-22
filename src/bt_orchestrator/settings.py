@@ -84,6 +84,9 @@ class PitSettings(_Section):
     mode: Literal["http", "local"]
     timeout_s: float
     query_mode: Literal["research", "live"]
+    format: Literal["arrow", "json"]
+    timestamp_columns: list[str]
+    bars_source: Literal["dataset", "trades"]
     datasets: PitDatasets
 
 

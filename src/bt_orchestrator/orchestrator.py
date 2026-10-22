@@ -21,7 +21,7 @@ from bt_orchestrator.calibration.models import FillModelBundle
 from bt_orchestrator.calibration.store import FillModelStore
 from bt_orchestrator.clients.ledger import LedgerClient
 from bt_orchestrator.contracts.ledger import Actor, TrialRecord
-from bt_orchestrator.data.market import MarketData, combine_fingerprints
+from bt_orchestrator.data.market import MarketData
 from bt_orchestrator.data.source import LeakageError
 from bt_orchestrator.data.tape import bars_from_trades
 from bt_orchestrator.domain import CostSpec, DataBundle, Fidelity, InstrumentSpec
@@ -161,7 +161,12 @@ class Orchestrator:
     def load(self, spec: RunSpec, symbol: str, fidelity: Fidelity) -> DataBundle:
         try:
             bundle = self.market.load(
-                symbol, spec.start, spec.end, spec.known_at, with_tape=fidelity in TICK_LEVELS
+                symbol,
+                spec.start,
+                spec.end,
+                spec.known_at,
+                with_tape=fidelity in TICK_LEVELS,
+                strategy_id=self._trials.strategy_id(spec.strategy, spec.universe),
             )
         except LeakageError as exc:
             self.ledger.report_leakage(exc.event)
@@ -201,7 +206,9 @@ class Orchestrator:
         engine = self.engines.build(fidelity)
         started = utc_now()
         results: list[EngineResult] = []
-        fingerprints: dict[str, str] = {}
+        primary: str | None = None
+        fingerprint_tags: list[str] = []
+        flag_tags: list[str] = []
         versions: dict[str, int | None] = {}
         for symbol in spec.universe:
             bundle = (bundles or {}).get(symbol) or self.load(spec, symbol, fidelity)
@@ -224,7 +231,9 @@ class Orchestrator:
             )
             result = engine.run(job)
             results.append(result)
-            fingerprints |= {f"{symbol}:{k}": v for k, v in bundle.fingerprints.items()}
+            primary = primary or bundle.primary_fingerprint
+            fingerprint_tags += [f"fingerprint:{symbol}:{k}={v}" for k, v in bundle.fingerprints.items()]
+            flag_tags += [f"leakage-flag:{symbol}:{f}" for f in bundle.leakage_flags]
             log.info(
                 "engine_run",
                 engine=result.engine,
@@ -238,7 +247,9 @@ class Orchestrator:
         fills = pd.concat([r.fills for r in results], ignore_index=True)
         metrics = compute_metrics(ledger, fills, s.periods_per_year, s.account.initial_cash)
         returns = pd.Series(ledger["ret"].to_numpy(), index=ledger["ts_close"].to_numpy())
-        fingerprint = combine_fingerprints(fingerprints)
+        # The trial keeps I2's own fingerprint of the primary dataset (never a derived hash), so
+        # GET /v1/fingerprints/{fp} on I2 reproduces it; every dataset's fingerprint is also tagged.
+        fingerprint = primary
         trial = self._trials.build(
             TrialInputs(
                 strategy=spec.strategy,
@@ -256,6 +267,8 @@ class Orchestrator:
                     f"engine:{engine.name}",
                     "calibrated" if any(versions.values()) else "uncalibrated",
                     *spec.tags,
+                    *fingerprint_tags,
+                    *flag_tags,
                 ],
                 actor=spec.actor,
             )
@@ -301,7 +314,14 @@ class Orchestrator:
         end_ns = int(data.fills["ts_submit"].max()) + s.bar_interval_ns
         start = ns_to_iso(start_ns // s.bar_interval_ns * s.bar_interval_ns)
         end = ns_to_iso(end_ns)
-        bars = self.market.load(symbol, start, end, known_at or end, with_tape=False).bars
+        bars = self.market.load(
+            symbol,
+            start,
+            end,
+            known_at or end,
+            with_tape=False,
+            strategy_id=self._trials.strategy_id("calibration", [symbol]),
+        ).bars
         adv = average_daily_volume(bars, s.bar_interval_ns, s.market.seconds_per_day)
         bundle = calibrate(
             data,

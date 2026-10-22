@@ -87,6 +87,12 @@ class DataBundle:
     bars: pd.DataFrame
     tape: Tape | None = None
     fingerprints: dict[str, str] = field(default_factory=dict)
+    leakage_flags: tuple[str, ...] = ()
+
+    @property
+    def primary_fingerprint(self) -> str | None:
+        """Fingerprint of the dataset the bars came from (the first one loaded)."""
+        return next(iter(self.fingerprints.values()), None)
 
 
 def empty_fills() -> pd.DataFrame:

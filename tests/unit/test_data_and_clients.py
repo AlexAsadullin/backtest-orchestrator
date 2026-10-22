@@ -14,9 +14,9 @@ import respx
 from bt_orchestrator.clients.ledger import LedgerClient
 from bt_orchestrator.clients.sim import FakeSimService, SimHttpClient
 from bt_orchestrator.contracts.ledger import Actor, LeakageEvent, ReturnSeries, TrialRecord
-from bt_orchestrator.contracts.pit import FINGERPRINT_HEADER, PitQuery
+from bt_orchestrator.contracts.pit import FINGERPRINT_HEADER, LEAKAGE_FLAG_HEADER, PitFilter, PitQuery
 from bt_orchestrator.contracts.sim import SimulationRequest
-from bt_orchestrator.data.market import MarketData, combine_fingerprints
+from bt_orchestrator.data.market import MarketData
 from bt_orchestrator.data.source import LeakageError, LocalParquetSource, PitHttpSource
 from bt_orchestrator.data.synthetic import MarketSpec, generate_tape
 from bt_orchestrator.data.tape import bars_from_trades, event_time, read_i1_tape, write_i1_tape
@@ -152,12 +152,22 @@ def iso(seconds: int) -> str:
 
 def test_local_source_point_in_time(settings: Settings, tmp_path: Path) -> None:
     src = _local(settings, tmp_path)
-    q = PitQuery(dataset="bars", start=iso(0), end=iso(120), known_at=iso(200), filters={"symbol": "X"})
+    q = PitQuery(
+        dataset="bars",
+        start=iso(0),
+        end=iso(120),
+        known_at=iso(200),
+        filters=[PitFilter(column="symbol", op="==", value="X")],
+    )
     res = src.query(q)
     assert res.frame["close"].tolist() == [2.0, 3.0]  # the later revision wins
     early = src.query(q.model_copy(update={"known_at": iso(130), "end": iso(120)}))
     assert early.fingerprint != res.fingerprint
-    cols = src.query(q.model_copy(update={"columns": ["close"], "filters": {"symbol": ["X", "Y"]}}))
+    cols = src.query(
+        q.model_copy(
+            update={"columns": ["close"], "filters": [PitFilter(column="symbol", op="in", value=["X", "Y"])]}
+        )
+    )
     assert list(cols.frame.columns) == ["close"]
     with pytest.raises(LeakageError, match="end_after_known_at"):
         src.query(q.model_copy(update={"known_at": iso(60)}))
@@ -179,46 +189,103 @@ def test_local_source_missing_files_and_knowledge_time(settings: Settings, tmp_p
         src.query(q)
 
 
-@respx.mock
-def test_pit_http_source() -> None:
-    table = pa.table({"ts": [0], "close": [1.0]})
+def _arrow(table: pa.Table) -> bytes:
     sink = pa.BufferOutputStream()
     with pa.ipc.new_stream(sink, table.schema) as writer:
         writer.write_table(table)
-    body = sink.getvalue().to_pybytes()
+    return bytes(sink.getvalue().to_pybytes())
+
+
+LEAK_BODY = {
+    "schema_version": "1",
+    "source": "i2",
+    "strategy_id": "i5-x",
+    "trial_id": None,
+    "severity": "block",
+    "kind": "end_after_known_at",
+    "detail": {"dataset": "tape.trades"},
+    "observed_at": "2026-01-05T00:00:00Z",
+}
+
+
+@respx.mock
+def test_pit_http_source_arrow() -> None:
+    body = _arrow(pa.table({"ts": [0], "close": [1.0]}))
     route = respx.post("http://pit.test/v1/query")
     route.side_effect = [
         httpx.Response(200, content=body, headers={FINGERPRINT_HEADER: "sha256:f"}),
-        httpx.Response(200, content=body),
         httpx.Response(
-            409,
-            json={
-                "source": "i2",
-                "strategy_id": None,
-                "trial_id": None,
-                "severity": "block",
-                "kind": "leak",
-                "detail": {},
-                "observed_at": "2026-01-05T00:00:00Z",
-            },
+            200, content=body, headers={FINGERPRINT_HEADER: "sha256:g", LEAKAGE_FLAG_HEADER: "a, b"}
         ),
+        httpx.Response(200, content=body),
+        httpx.Response(409, json=LEAK_BODY),
     ]
     src = PitHttpSource("http://pit.test", 1.0)
-    q = PitQuery(dataset="bars", start=iso(0), end=iso(60), known_at=iso(60))
+    q = PitQuery(
+        dataset="bars",
+        start=iso(0),
+        end=iso(60),
+        known_at=iso(60),
+        filters=[PitFilter(column="symbol", op="==", value="X")],
+        strategy_id="i5-x",
+    )
     res = src.query(q)
     assert res.fingerprint == "sha256:f"
+    assert res.leakage_flags == ()
     assert res.frame["close"].tolist() == [1.0]
+    sent = json.loads(route.calls[0].request.content)
+    assert sent["format"] == "arrow"
+    assert sent["filters"] == [{"column": "symbol", "op": "==", "value": "X"}]
+    assert sent["strategy_id"] == "i5-x"
+    assert src.query(q).leakage_flags == ("a", "b")
     with pytest.raises(ValueError, match="lacks"):
         src.query(q)
-    with pytest.raises(LeakageError):
+    with pytest.raises(LeakageError) as err:
         src.query(q)
+    assert err.value.event.kind == "end_after_known_at"
     src.close()
 
 
-def test_combine_fingerprints() -> None:
-    assert combine_fingerprints({}) is None
-    assert combine_fingerprints({"a": "x", "b": "x"}) == "x"
-    assert combine_fingerprints({"a": "x", "b": "y"}).startswith("sha256:")  # type: ignore[union-attr]
+@respx.mock
+def test_pit_http_source_json_times() -> None:
+    respx.post("http://pit.test/v1/query").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "schema_version": "1",
+                "fingerprint": "sha256:j",
+                "columns": ["ts_local", "price", "knowledge_time"],
+                "rows": [
+                    {"ts_local": "2026-01-05T00:00:01.000000002Z", "price": 1.5, "knowledge_time": None},
+                ],
+                "flags": [],
+            },
+            headers={FINGERPRINT_HEADER: "sha256:j"},
+        )
+    )
+    src = PitHttpSource("http://pit.test", 1.0, fmt="json", timestamp_columns=("ts_local", "knowledge_time"))
+    res = src.query(PitQuery(dataset="tape.trades", start=iso(0), end=iso(60), known_at=iso(60)))
+    expected = pd.Timestamp("2026-01-05T00:00:01.000000002Z").value
+    assert int(res.frame["ts_local"].iloc[0]) == expected
+    assert pd.isna(res.frame["knowledge_time"].iloc[0])
+    assert res.fingerprint == "sha256:j"
+
+
+def test_pit_filter_validation() -> None:
+    with pytest.raises(ValueError, match="list"):
+        PitFilter(column="symbol", op="in", value="X")
+    with pytest.raises(ValueError, match="scalar"):
+        PitFilter(column="symbol", op="==", value=["X"])
+
+
+def test_local_filter_operators(settings: Settings, tmp_path: Path) -> None:
+    from bt_orchestrator.data.source import filter_mask
+
+    frame = pd.DataFrame({"x": [1, 2, 3]})
+    cases = {"==": [2], "!=": [1, 3], "<": [1], "<=": [1, 2], ">": [3], ">=": [2, 3]}
+    for op, expected in cases.items():
+        mask = filter_mask(frame, [PitFilter(column="x", op=op, value=2)])  # type: ignore[arg-type]
+        assert frame.loc[mask, "x"].tolist() == expected
 
 
 def test_market_data_errors(settings: Settings, tmp_path: Path) -> None:
@@ -228,8 +295,12 @@ def test_market_data_errors(settings: Settings, tmp_path: Path) -> None:
 
             return QueryResult(pd.DataFrame(), "f")
 
-    md = MarketData(Empty(), settings.pit)  # type: ignore[arg-type]
+    md = MarketData(Empty(), settings.pit, venue="SYNTH", bar_interval_ns=60 * S)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="no bars"):
+        md.load("X", iso(0), iso(60), iso(60), with_tape=False)
+    trades_cfg = settings.pit.model_copy(update={"bars_source": "trades"})
+    md = MarketData(Empty(), trades_cfg, venue="SYNTH", bar_interval_ns=60 * S)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="no trades"):
         md.load("X", iso(0), iso(60), iso(60), with_tape=False)
 
 

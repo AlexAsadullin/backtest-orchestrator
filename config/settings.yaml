@@ -38,10 +38,16 @@ pit:
   mode: local                         # http | local
   timeout_s: 30.0
   query_mode: research
+  format: arrow                       # arrow (int64 ns times) | json (ISO-8601 times)
+  # Columns that I2's JSON format renders as ISO-8601 strings and the client turns back into int64 ns.
+  timestamp_columns: [ts, ts_exchange, ts_local, valid_time, knowledge_time]
+  # Where bars come from: a bars dataset (the local stand-in has one), or I2's tape.trades aggregated
+  # to bars here (the shipped I2 has no bars dataset, so use "trades" with mode: http).
+  bars_source: dataset                # dataset | trades
   datasets:
     bars: bars_1m
-    trades: tape_trades
-    book: tape_book_delta
+    trades: tape.trades               # I2 dataset names (point-in-time-store config/datasets.yaml)
+    book: tape.book_delta
 
 local_source:
   # Datasets served offline by the local Parquet source, relative to this project's data subtree.
@@ -49,10 +55,10 @@ local_source:
     bars_1m:
       path: synthetic/market/bars_1m.parquet
       keys: [symbol, ts]
-    tape_trades:
+    tape.trades:
       path: synthetic/market/trades.parquet
       keys: [symbol, trade_id]
-    tape_book_delta:
+    tape.book_delta:
       path: synthetic/market/book_delta.parquet
       keys: [symbol, ts_local, side, price]
   valid_time_column: valid_time
