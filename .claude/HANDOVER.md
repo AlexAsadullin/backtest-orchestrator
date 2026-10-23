@@ -1,7 +1,7 @@
 # HANDOVER: backtest-orchestrator (Tradeq I5)
 
-Last updated 2026-10-22 by the orchestrating session, from the transcript of the agent that stopped at the
-session rate limit.
+Last updated 2026-10-23 by the I5 developer agent after the integration pass against the shipped I2 and S6
+(earlier sections written 2026-10-22 by the orchestrating session).
 
 ## Goal
 
@@ -53,6 +53,17 @@ synthetic data, then calibration, ladders, parity, a sweep and a report.
 5. Headline results (synthetic): calibrated fill-probability error 0.021 against 0.752 for touch fills; the gated ladder made 0 false promotions in 240 candidates at 24.5 s of engine time against 140.5 s for hftbacktest alone; the parity classifier detected 64 of 64 planted bugs against 20 for a PnL tolerance.
 6. Open findings: NautilusTrader applies `prob_fill_on_limit` only when the market rests on the limit price, so the calibrated probability barely changes bar-mode fills (E4 shows no significant gain); the ladder missed 22 of 51 tick-accepted candidates because the vectorised gate asks for 10 fills while the tick gate asks for 5, and the event gate caps the Sharpe drop at 2.0. Both are in the README roadmap; no threshold was tuned.
 
+## Integration pass with the shipped I2, S6 and I9 (2026-10-23)
+
+1. Commit 1696fe2 aligned the I2 client with `point-in-time-store` (`models.py`, `api.py`, `wire.py`). Filters are now I2's typed list `[{column, op, value}]` (they were a dict, which I2 rejects with 422). Requests send `format` and `strategy_id`. The JSON format is supported, and its ISO-8601 time columns (`pit.timestamp_columns`) are turned back into int64 ns. `X-Leakage-Flag` becomes `QueryResult.leakage_flags` and trial tags. The local dataset names are now I2's `tape.trades` and `tape.book_delta`. I2 has no bars dataset, so `pit.bars_source: trades` builds bars from `tape.trades`.
+2. Trials store I2's own fingerprint of the primary dataset (the bars dataset, or `tape.trades`). The derived hash over several fingerprints was removed, because I2 could not resolve it. Every dataset fingerprint is also a tag `fingerprint:<symbol>:<dataset>=<fp>`.
+3. A 409 from the real I2 raises `LeakageError(reported=True)`, and the orchestrator no longer reposts the event to S6 (I2 already does). The local stand-in still reports its own events.
+4. TrialRecord against `research_ledger/sdk/wire.py`: the fields match. S6 rejects NaN in returns and strict JSON has no NaN, so non-finite metrics are now sent as `null` (`trials.finite_metrics`, also in the API response). S6's batch endpoint returns a list of TrialAck, which the client already handled.
+5. Commit 96c996e added `make integration` (marker `integration`, deselected by default; `tests/live/test_real_services.py`). It starts `pit serve` and `ledger serve` from the sibling venvs on free loopback ports with a scratch data root under `tmp/`, seeds I2 with `pit ingest tape.trades|tape.book_delta`, climbs vectorised and event, checks `GET /v1/fingerprints/{fp}` on I2 and a 409 for a leaking query, then reads S6's `trials` table with S6's own Python. The run on 2026-10-23 passed (1 passed in 5.3 s).
+6. Commit 243a0f9: I9 (`mcp_gateway/clients/research.py`, `gateway.py`) sends exactly the contract request fields and accepts the response, but it maps an agent-scoped strategy id that it never sends, so trials landed under `i5-<strategy>-<universe>` while I9 asks S6 for its own id. I5 now accepts an optional `strategy_id` (and already accepted `actor`); I9 still has to send both. Calibration also counts each `fill_id` once, because I6's export used to repeat fills.
+7. The report numbers do not change: the experiments read their own synthetic fills under `experiments/seed-*`, never I6's shared export, and none of the changes touch engine results.
+8. State: `make lint typecheck test` is clean, 76 tests pass with 98% coverage, and the integration test passes.
+
 ## Mistakes and lessons
 
 1. An unanchored ignore pattern silently excluded source code from git. When an ignore pattern names a directory, anchor it to the repo root.
@@ -62,3 +73,6 @@ synthetic data, then calibration, ladders, parity, a sweep and a report.
 5. `parse_iso` truncates to microseconds, so tests that build timestamps must use whole seconds, not nanosecond offsets.
 6. Timings in the report depend on CPU load, so run `make report` alone, not in parallel with the tests.
 7. These lessons apply platform-wide. Compound shell commands were denied for subagents, so use `make -C`, `git -C` and `.venv/bin/python`. Subagents may not write report files, so return the text to the orchestrator. Commit early, because of the rate limit.
+8. A dict-shaped filter that I had assumed for I2 was wrong: I2 takes a typed list and rejects extra shapes. Read the producer's wire models before writing a client, and keep a live test against the real service.
+9. A combined fingerprint looked tidy but broke reproducibility, because only the producer can resolve its fingerprints. Store producer identifiers verbatim.
+10. When a producer reports an event itself (I2 posts leakage to S6), the consumer must not report it again.

@@ -21,7 +21,13 @@ make lint typecheck test        # ruff, mypy --strict, pytest with coverage (off
 make reproduce                  # synthetic market and fills, calibration, two ladders, parity, sweep (about 1 min)
 make report                     # experiments E1 to E5 behind docs/report.md, 8 seeds (about 7 min)
 make serve                      # HTTP service on 127.0.0.1:8606
+make integration                # opt-in: real I2 and S6 from ../point-in-time-store and ../research-ledger
 ```
+
+`make integration` starts both sibling services from their own `.venv` on free loopback ports with a scratch
+data root under `tmp/` (gitignored), seeds I2 with a synthetic tape through `pit ingest`, climbs the
+vectorised and event rungs, and checks in S6's database that both trials carry I2's fingerprint. It is
+skipped by `make test` (marker `integration`) and takes about 10 s.
 
 CLI: `bt synth | calibrate [--synthetic] | run | ladder | parity | sweep | walk-forward | serve | reproduce | report`.
 Example: `bt ladder --strategy limit_mean_reversion -p entry_z=2.0 --all-levels`.
@@ -36,6 +42,8 @@ nested delimiter `__`, for example `BT_SERVICE__PORT=9606`. `TRADEQ_DATA_DIR` is
 |---|---|---|
 | `ledger.mode` | auto | `http` to S6, `inbox` (JSONL under the data root), or HTTP with inbox fallback |
 | `pit.mode` | local | `http` reads through I2 (contract 6.3); `local` reads the synthetic Parquet stand-in |
+| `pit.bars_source` | dataset | `trades` builds bars from I2's `tape.trades`; use it with `pit.mode: http`, because I2 has no bars dataset |
+| `pit.format` | arrow | `arrow` (int64 ns times) or `json` (I2 sends ISO-8601 times, which the client turns back into ns) |
 | `sim.mode` | fake | `http` calls S3 (contract 6.5); `fake` writes a stressed synthetic tape in process |
 | `ladder.promotion.<rung>` | see file | gate per rung: minimum Sharpe and fills, maximum drawdown and Sharpe drop |
 | `parity.*` | see file | tolerances: ticks and lots counted as rounding, fee rate, PnL, timing window |
@@ -61,12 +69,27 @@ holds the report experiments.
 ## Contracts
 
 Produced: contract 6.5 backtest service (conventions section 6.5), `POST /v1/backtests` with
-`{strategy, params, universe, start, end, fidelity, known_at}` returning `{run_id, trial_id, metrics,
-fidelity_report?}`. Optional extensions: `ladder: true` climbs every rung up to `fidelity` and fills
-`fidelity_report`; `seed` and `actor` are accepted; `GET /v1/strategies` lists strategies and parameter
-schemas. Consumed: 6.1 (trials to S6, leakage events), 6.3 (I2 queries, dataset fingerprint stored in every
-trial; a refused query returns 409), 6.4 (I6 fills export; an optional orders file with unfilled limit
-orders, which the fill-probability model needs to avoid a fills-only bias), 6.5 (S3 simulations).
+`{strategy, params, universe, start, end, fidelity, known_at}` returning `{schema_version, run_id, trial_id,
+metrics, fidelity_report?}`. Non-finite metrics are sent as `null`. Optional request fields: `ladder: true`
+climbs every rung up to `fidelity` and fills `fidelity_report`; `seed`; `actor`; `strategy_id`, which sets
+the S6 strategy id of the trial (default `i5-<strategy>-<universe>`). `GET /v1/strategies` lists strategies
+and parameter schemas.
+
+Consumed:
+
+| Contract | How this project uses it |
+|---|---|
+| 6.1 S6 | `POST /v1/trials` (`/v1/trials/batch` for sweeps), fallback to the inbox; the TrialRecord matches `research_ledger/sdk/wire.py` |
+| 6.3 I2 | `POST /v1/query` with I2's typed filters `[{column, op, value}]`, `format`, `strategy_id`; datasets `tape.trades`, `tape.book_delta` |
+| 6.4 I6 | fills export for calibration (each `fill_id` counted once); optional orders file with unfilled limit orders, which the fill-probability model needs to avoid a fills-only bias |
+| 6.5 S3 | `POST /v1/simulations`, tape read from `tape_path` in the I1 layout |
+
+Every trial stores I2's own `X-Dataset-Fingerprint` of the primary dataset (the bars, or `tape.trades` when
+bars are built from trades) in `dataset_fingerprint`, so `GET /v1/fingerprints/{fp}` on I2 reproduces the
+data; each dataset's fingerprint is also a tag `fingerprint:<symbol>:<dataset>=<fp>`, and an
+`X-Leakage-Flag` header becomes a tag `leakage-flag:<symbol>:<kind>`. A 409 from I2 is raised as a
+`LeakageError` with I2's `LeakageEvent`; I2 has already sent that event to S6, so I5 does not send it again
+(the offline stand-in does send its own events).
 
 ## Key results
 
