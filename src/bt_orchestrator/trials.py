@@ -52,6 +52,7 @@ class TrialInputs:
     periods_per_year: float
     tags: list[str]
     actor: Actor | None = None
+    strategy_id: str | None = None
 
 
 class TrialBuilder:
@@ -83,7 +84,7 @@ class TrialBuilder:
         return TrialRecord(
             trial_id=trial_id,
             family=self._cfg.family_template.format(strategy=x.strategy, universe=universe),
-            strategy_id=self.strategy_id(x.strategy, x.universe),
+            strategy_id=x.strategy_id or self.strategy_id(x.strategy, x.universe),
             source=self._cfg.source,
             actor=actor,
             params=x.params,

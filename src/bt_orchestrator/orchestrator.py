@@ -69,6 +69,8 @@ class RunSpec:
     seed: int
     actor: Actor | None = None
     tags: tuple[str, ...] = ()
+    # Caller-chosen S6 strategy id (e.g. I9's agent-scoped id); default from ledger.strategy_id_template.
+    strategy_id: str | None = None
 
 
 @dataclass
@@ -166,7 +168,7 @@ class Orchestrator:
                 spec.end,
                 spec.known_at,
                 with_tape=fidelity in TICK_LEVELS,
-                strategy_id=self._trials.strategy_id(spec.strategy, spec.universe),
+                strategy_id=spec.strategy_id or self._trials.strategy_id(spec.strategy, spec.universe),
             )
         except LeakageError as exc:
             if not exc.reported:
@@ -272,6 +274,7 @@ class Orchestrator:
                     *flag_tags,
                 ],
                 actor=spec.actor,
+                strategy_id=spec.strategy_id,
             )
         )
         if log_trial:

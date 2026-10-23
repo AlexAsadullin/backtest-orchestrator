@@ -76,6 +76,8 @@ def load_calibration_input(
     if missing:
         raise ValueError(f"fills export lacks contract columns {missing}")
     fills = fills[(fills["venue"] == venue) & (fills["symbol"] == symbol)].reset_index(drop=True)
+    # Re-exports can repeat a fill; each fill_id counts once.
+    fills = fills.drop_duplicates(subset="fill_id", keep="first").reset_index(drop=True)
     orders: pd.DataFrame | None = None
     order_parts: list[Path] = []
     if orders_root is not None and orders_root.exists():

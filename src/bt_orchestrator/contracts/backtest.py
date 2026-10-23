@@ -2,7 +2,8 @@
 
 Optional extensions (documented in the README): ``ladder`` climbs every rung up to ``fidelity`` with
 promotion gates and returns ``fidelity_report``; ``actor`` attributes the trial; ``seed`` fixes
-stochastic fill models.
+stochastic fill models; ``strategy_id`` sets the S6 strategy id of the trial (callers such as I9 that
+query ``GET /v1/strategies/{strategy_id}/verdict`` need the trials under their own id).
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ class BacktestRequest(BaseModel):
     ladder: bool = False
     actor: Actor | None = None
     seed: int | None = None
+    strategy_id: str | None = None
 
 
 class BacktestResponse(BaseModel):

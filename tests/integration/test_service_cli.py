@@ -49,6 +49,19 @@ def test_api(orch: Orchestrator, synthetic: SyntheticPaths) -> None:
     assert r.status_code == 422
     r = client.post("/v1/backtests", json=body(synthetic, params={"fast": 50, "slow": 10}))
     assert r.status_code == 422
+    # I9 sends exactly the contract fields; the optional strategy_id puts the trial under its own id.
+    i9 = body(synthetic) | {"schema_version": "1", "strategy_id": "agent-7:sma"}
+    r = client.post("/v1/backtests", json=i9)
+    assert r.status_code == 200
+    assert set(r.json()) == {"schema_version", "run_id", "trial_id", "metrics", "fidelity_report"}
+    trial_id = r.json()["trial_id"]
+    records = [
+        json.loads(line)
+        for path in orch.settings.ledger_inbox_dir.glob("*.jsonl")
+        for line in path.read_text().splitlines()
+    ]
+    logged = next(rec for rec in records if rec["trial_id"] == trial_id)
+    assert logged["strategy_id"] == "agent-7:sma"
 
 
 @pytest.fixture

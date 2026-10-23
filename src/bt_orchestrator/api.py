@@ -41,6 +41,7 @@ def spec_from_request(req: BacktestRequest, default_seed: int) -> RunSpec:
         seed=req.seed if req.seed is not None else default_seed,
         actor=req.actor,
         tags=("api",),
+        strategy_id=req.strategy_id,
     )
 
 

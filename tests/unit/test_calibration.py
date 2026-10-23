@@ -46,6 +46,16 @@ def write_fills(settings: Settings, root: Path, n: int = 3000, seed: int = 1) ->
     return fills_root, orders_root
 
 
+def test_duplicate_fill_ids_count_once(settings: Settings, tmp_path: Path) -> None:
+    fills_root, orders_root = write_fills(settings, tmp_path, n=500)
+    once = load_calibration_input(fills_root, orders_root, "SYNTH", "BTC-USDT-PERP")
+    part = next(fills_root.glob("date=*/part-0.parquet"))
+    pd.read_parquet(part).to_parquet(part.with_name("part-1.parquet"), index=False)
+    twice = load_calibration_input(fills_root, orders_root, "SYNTH", "BTC-USDT-PERP")
+    assert len(twice.fills) == len(once.fills)
+    assert twice.fills["fill_id"].is_unique
+
+
 def test_generate_fills_shapes(settings: Settings) -> None:
     out = generate_fills(
         settings.synthetic.fills.model_copy(update={"n_orders": 400}),
