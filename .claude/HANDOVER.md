@@ -76,3 +76,11 @@ synthetic data, then calibration, ladders, parity, a sweep and a report.
 8. A dict-shaped filter that I had assumed for I2 was wrong: I2 takes a typed list and rejects extra shapes. Read the producer's wire models before writing a client, and keep a live test against the real service.
 9. A combined fingerprint looked tidy but broke reproducibility, because only the producer can resolve its fingerprints. Store producer identifiers verbatim.
 10. When a producer reports an event itself (I2 posts leakage to S6), the consumer must not report it again.
+
+## MOEX pivot (2026-10-29)
+
+`config/settings.yaml` gained the MOEX instruments SBER, GAZP and LKOH (`market.instruments`, lot sizes in shares,
+ticks from the MOEX securities table), so I9's real-service test can run a backtest on the MOEX tape in the
+real I2 (`BT_MARKET__VENUE=moex-tbank`). The crypto instruments stay, because the report experiments use a
+synthetic BTC market. `make test` unchanged (76 passed). Next for I5 (not done): calibrate fills from I6 MOEX
+fills and the I9 mirror, and run the ladder on a recorded MOEX day.

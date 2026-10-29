@@ -109,6 +109,10 @@ market:
       lot_size: 0.01
       price_precision: 2
       size_precision: 2
+    # MOEX stocks (spec revision 2026-10-29); lot_size is in shares, as in the I1 tape.
+    SBER-RUB-TQBR: {base: SBER, quote: RUB, tick_size: 0.01, lot_size: 1, price_precision: 2, size_precision: 0}
+    GAZP-RUB-TQBR: {base: GAZP, quote: RUB, tick_size: 0.01, lot_size: 10, price_precision: 2, size_precision: 0}
+    LKOH-RUB-TQBR: {base: LKOH, quote: RUB, tick_size: 0.5, lot_size: 1, price_precision: 1, size_precision: 0}
 
 costs:
   maker_fee: 0.0002
