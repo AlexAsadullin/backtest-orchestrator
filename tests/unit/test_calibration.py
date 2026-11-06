@@ -31,9 +31,9 @@ def write_fills(settings: Settings, root: Path, n: int = 3000, seed: int = 1) ->
     cfg = s.synthetic.fills.model_copy(update={"n_orders": n})
     out = generate_fills(
         cfg,
-        symbol="BTC-USDT-PERP",
+        symbol="SBER-RUB-TQBR",
         start_ns=0,
-        initial_price=60000.0,
+        initial_price=292.9,
         vol_bps_per_sqrt_s=s.synthetic.vol_bps_per_sqrt_s,
         adv=ADV,
         maker_fee=s.costs.maker_fee,
@@ -48,10 +48,10 @@ def write_fills(settings: Settings, root: Path, n: int = 3000, seed: int = 1) ->
 
 def test_duplicate_fill_ids_count_once(settings: Settings, tmp_path: Path) -> None:
     fills_root, orders_root = write_fills(settings, tmp_path, n=500)
-    once = load_calibration_input(fills_root, orders_root, "SYNTH", "BTC-USDT-PERP")
+    once = load_calibration_input(fills_root, orders_root, "moex-tbank", "SBER-RUB-TQBR")
     part = next(fills_root.glob("date=*/part-0.parquet"))
     pd.read_parquet(part).to_parquet(part.with_name("part-1.parquet"), index=False)
-    twice = load_calibration_input(fills_root, orders_root, "SYNTH", "BTC-USDT-PERP")
+    twice = load_calibration_input(fills_root, orders_root, "moex-tbank", "SBER-RUB-TQBR")
     assert len(twice.fills) == len(once.fills)
     assert twice.fills["fill_id"].is_unique
 
@@ -75,11 +75,11 @@ def test_generate_fills_shapes(settings: Settings) -> None:
 
 def test_calibration_recovers_the_generating_process(settings: Settings, tmp_path: Path) -> None:
     fills_root, orders_root = write_fills(settings, tmp_path, n=4000)
-    data = load_calibration_input(fills_root, orders_root, "SYNTH", "BTC-USDT-PERP")
+    data = load_calibration_input(fills_root, orders_root, "moex-tbank", "SBER-RUB-TQBR")
     bundle = calibrate(
         data,
-        venue="SYNTH",
-        symbol="BTC-USDT-PERP",
+        venue="moex-tbank",
+        symbol="SBER-RUB-TQBR",
         adv=ADV,
         cfg=settings.calibration,
         version=1,
@@ -105,7 +105,7 @@ def test_calibration_recovers_the_generating_process(settings: Settings, tmp_pat
 
 def test_fills_only_basis_and_errors(settings: Settings, tmp_path: Path) -> None:
     fills_root, _ = write_fills(settings, tmp_path, n=600)
-    data = load_calibration_input(fills_root, None, "SYNTH", "BTC-USDT-PERP")
+    data = load_calibration_input(fills_root, None, "moex-tbank", "SBER-RUB-TQBR")
     samples = build_samples(data, ADV, settings.calibration)
     assert samples.label_basis == "fills_only"
     with pytest.raises(ValueError, match="ADV"):
@@ -113,8 +113,8 @@ def test_fills_only_basis_and_errors(settings: Settings, tmp_path: Path) -> None
     with pytest.raises(ValueError, match="at least"):
         calibrate(
             data,
-            venue="SYNTH",
-            symbol="BTC-USDT-PERP",
+            venue="moex-tbank",
+            symbol="SBER-RUB-TQBR",
             adv=ADV,
             cfg=settings.calibration.model_copy(update={"min_samples": 10_000}),
             version=1,
@@ -131,12 +131,12 @@ def test_fills_only_basis_and_errors(settings: Settings, tmp_path: Path) -> None
 
 def test_load_errors(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        load_calibration_input(tmp_path / "none", None, "SYNTH", "X")
+        load_calibration_input(tmp_path / "none", None, "moex-tbank", "X")
     bad = tmp_path / "bad" / "date=2026-01-05"
     bad.mkdir(parents=True)
     pd.DataFrame({"x": [1]}).to_parquet(bad / "part-0.parquet")
     with pytest.raises(ValueError, match="contract columns"):
-        load_calibration_input(tmp_path / "bad", None, "SYNTH", "X")
+        load_calibration_input(tmp_path / "bad", None, "moex-tbank", "X")
 
 
 def test_realised_vol_and_split() -> None:
@@ -153,14 +153,14 @@ def test_realised_vol_and_split() -> None:
 
 def test_store_versions(settings: Settings, tmp_path: Path) -> None:
     fills_root, orders_root = write_fills(settings, tmp_path, n=1500)
-    data = load_calibration_input(fills_root, orders_root, "SYNTH", "BTC-USDT-PERP")
+    data = load_calibration_input(fills_root, orders_root, "moex-tbank", "SBER-RUB-TQBR")
     store = FillModelStore(tmp_path / "models")
-    assert store.load("SYNTH", "BTC-USDT-PERP") is None
-    assert store.next_version("SYNTH", "BTC-USDT-PERP") == 1
+    assert store.load("moex-tbank", "SBER-RUB-TQBR") is None
+    assert store.next_version("moex-tbank", "SBER-RUB-TQBR") == 1
     b1 = calibrate(
         data,
-        venue="SYNTH",
-        symbol="BTC-USDT-PERP",
+        venue="moex-tbank",
+        symbol="SBER-RUB-TQBR",
         adv=ADV,
         cfg=settings.calibration,
         version=1,
@@ -170,9 +170,9 @@ def test_store_versions(settings: Settings, tmp_path: Path) -> None:
     with pytest.raises(FileExistsError):
         store.save(b1)
     store.save(b1.model_copy(update={"version": 2}))
-    assert store.versions("SYNTH", "BTC-USDT-PERP") == [1, 2]
-    loaded = store.load("SYNTH", "BTC-USDT-PERP")
+    assert store.versions("moex-tbank", "SBER-RUB-TQBR") == [1, 2]
+    loaded = store.load("moex-tbank", "SBER-RUB-TQBR")
     assert loaded is not None
     assert loaded.version == 2
-    assert store.load("SYNTH", "BTC-USDT-PERP", version=1) == b1
-    assert store.load("SYNTH", "BTC-USDT-PERP", version=9) is None
+    assert store.load("moex-tbank", "SBER-RUB-TQBR", version=1) == b1
+    assert store.load("moex-tbank", "SBER-RUB-TQBR", version=9) is None

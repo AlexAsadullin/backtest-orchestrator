@@ -101,7 +101,7 @@ def test_ledger_auto_falls_back_on_transport_error(tmp_path: Path) -> None:
 def test_trial_builder_inline_and_parquet(settings: Settings, tmp_path: Path) -> None:
     inputs = TrialInputs(
         strategy="sma_cross",
-        universe=["BTC-USDT-PERP"],
+        universe=["SBER-RUB-TQBR"],
         params={"fast": 1},
         returns=pd.Series([0.01, -0.01], index=[60_000_000_000, 120_000_000_000]),
         metrics={"sharpe": 1.0},
@@ -113,7 +113,7 @@ def test_trial_builder_inline_and_parquet(settings: Settings, tmp_path: Path) ->
         tags=["t"],
     )
     rec = TrialBuilder(settings.ledger, tmp_path, "abc").build(inputs)
-    assert rec.family == "i5/sma_cross/BTC-USDT-PERP"
+    assert rec.family == "i5/sma_cross/SBER-RUB-TQBR"
     assert rec.returns is not None
     assert rec.returns.ts[0] == "1970-01-01T00:01:00Z"
     assert rec.code_version == "abc"
@@ -296,25 +296,27 @@ def test_market_data_errors(settings: Settings, tmp_path: Path) -> None:
 
             return QueryResult(pd.DataFrame(), "f")
 
-    md = MarketData(Empty(), settings.pit, venue="SYNTH", bar_interval_ns=60 * S)  # type: ignore[arg-type]
+    md = MarketData(Empty(), settings.pit, venue="moex-tbank", bar_interval_ns=60 * S)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="no bars"):
         md.load("X", iso(0), iso(60), iso(60), with_tape=False)
     trades_cfg = settings.pit.model_copy(update={"bars_source": "trades"})
-    md = MarketData(Empty(), trades_cfg, venue="SYNTH", bar_interval_ns=60 * S)  # type: ignore[arg-type]
+    md = MarketData(Empty(), trades_cfg, venue="moex-tbank", bar_interval_ns=60 * S)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="no trades"):
         md.load("X", iso(0), iso(60), iso(60), with_tape=False)
 
 
 def test_tape_round_trip_and_bars(settings: Settings, tmp_path: Path) -> None:
-    inst = instrument_spec(settings, "BTC-USDT-PERP")
-    spec = MarketSpec.from_settings(settings.synthetic, "BTC-USDT-PERP", "SYNTH", settings.bar_interval_ns)
+    inst = instrument_spec(settings, "SBER-RUB-TQBR")
+    spec = MarketSpec.from_settings(
+        settings.synthetic, "SBER-RUB-TQBR", "moex-tbank", settings.bar_interval_ns
+    )
     spec = MarketSpec(**{**spec.__dict__, "n_bars": 5})
     tape = generate_tape(spec, inst)
-    assert len(write_i1_tape(tape, tmp_path, "SYNTH")) == 2
-    back = read_i1_tape(tmp_path, "BTC-USDT-PERP")
+    assert len(write_i1_tape(tape, tmp_path, "moex-tbank")) == 2
+    back = read_i1_tape(tmp_path, "SBER-RUB-TQBR")
     assert len(back.trades) == len(tape.trades)
     with pytest.raises(FileNotFoundError):
-        read_i1_tape(tmp_path, "ETH-USDT-PERP")
+        read_i1_tape(tmp_path, "GAZP-RUB-TQBR")
     bars = bars_from_trades(back.trades, spec.start_ns, spec.end_ns, settings.bar_interval_ns)
     assert len(bars) == 5
     assert (bars["high"] >= bars["low"]).all()
@@ -335,21 +337,23 @@ def test_sim_clients(settings: Settings, tmp_path: Path) -> None:
         return_value=httpx.Response(200, json={"simulation_id": "s", "tape_path": "/x"})
     )
     http = SimHttpClient("http://sim.test", 1.0)
-    req = SimulationRequest(scenario="a", seed=1, duration_s=120, venue="SYNTH", symbol="BTC-USDT-PERP")
+    req = SimulationRequest(scenario="a", seed=1, duration_s=120, venue="moex-tbank", symbol="SBER-RUB-TQBR")
     assert http.scenarios() == ["a", "b"]
     assert http.simulate(req).tape_path == "/x"
 
-    base = MarketSpec.from_settings(settings.synthetic, "BTC-USDT-PERP", "SYNTH", settings.bar_interval_ns)
+    base = MarketSpec.from_settings(
+        settings.synthetic, "SBER-RUB-TQBR", "moex-tbank", settings.bar_interval_ns
+    )
     req = req.model_copy(update={"scenario": "baseline"})
     fake = FakeSimService(
         tmp_path,
         base,
-        {"BTC-USDT-PERP": instrument_spec(settings, "BTC-USDT-PERP")},
+        {"SBER-RUB-TQBR": instrument_spec(settings, "SBER-RUB-TQBR")},
         settings.sim.fake_scenarios,
     )
     assert fake.scenarios() == ["baseline", "thin-book-stress"]
     resp = fake.simulate(req)
-    assert read_i1_tape(Path(resp.tape_path), "BTC-USDT-PERP").trades.shape[0] > 0
+    assert read_i1_tape(Path(resp.tape_path), "SBER-RUB-TQBR").trades.shape[0] > 0
     assert fake.simulate(req) == resp
     with pytest.raises(ValueError, match="unknown"):
         fake.simulate(req.model_copy(update={"scenario": "nope"}))

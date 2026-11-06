@@ -104,3 +104,12 @@ def test_different_bar_grids_are_refused(settings: Settings) -> None:
     b.ledger = b.ledger.assign(ts=b.ledger["ts"] + 1)
     with pytest.raises(ValueError, match="same bar grid"):
         compare_runs(a, b, INST, settings.parity, "s")
+
+
+def test_fee_rounding_to_the_minor_unit_is_benign(settings: Settings) -> None:
+    # 0.25% of a 285-rouble share is 0.7125; Nautilus books 0.71 (whole kopecks).
+    a = [fill(BAR, 1, price=285.0, fee=0.7125), fill(5 * BAR, -1, price=285.0, fee=0.7125)]
+    b = [fill(BAR, 1, price=285.0, fee=0.71), fill(5 * BAR, -1, price=285.0, fee=0.75)]
+    rep = compare_runs(result(a), result(b, "b"), INST, settings.parity, "s")
+    assert rep.counts == {"rounding": 1, "fee": 1}
+    assert rep.material_disagreement_rate == pytest.approx(0.5)

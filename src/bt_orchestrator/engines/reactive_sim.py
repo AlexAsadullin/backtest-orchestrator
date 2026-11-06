@@ -7,6 +7,7 @@ from pathlib import Path
 
 from bt_orchestrator.clients.sim import SimClient
 from bt_orchestrator.contracts.sim import SimulationRequest
+from bt_orchestrator.data.session import SessionCalendar
 from bt_orchestrator.data.tape import bars_from_trades, event_time, read_i1_tape
 from bt_orchestrator.domain import Fidelity
 from bt_orchestrator.engines.base import EngineJob, EngineResult
@@ -19,9 +20,15 @@ class ReactiveSimEngine:
     fidelity = Fidelity.REACTIVE_SIM
 
     def __init__(
-        self, client: SimClient, tick_engine: HftBacktestEngine, scenario: str, max_duration_s: int
+        self,
+        client: SimClient,
+        tick_engine: HftBacktestEngine,
+        scenario: str,
+        max_duration_s: int,
+        session: SessionCalendar | None = None,
     ) -> None:
         self._client = client
+        self._session = session
         self._tick = tick_engine
         self._scenario = scenario
         self._max_duration_s = max_duration_s
@@ -40,7 +47,7 @@ class ReactiveSimEngine:
         ts = event_time(tape.trades)
         start = int(ts.min()) // job.bar_interval_ns * job.bar_interval_ns
         end = int(ts.max()) // job.bar_interval_ns * job.bar_interval_ns + job.bar_interval_ns
-        bars = bars_from_trades(tape.trades, start, end, job.bar_interval_ns)
+        bars = bars_from_trades(tape.trades, start, end, job.bar_interval_ns, self._session)
         result = self._tick.run(replace(job, bars=bars, tape=tape))
         result.engine = self.name
         result.fidelity = self.fidelity

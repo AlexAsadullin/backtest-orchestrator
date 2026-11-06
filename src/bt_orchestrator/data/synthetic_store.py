@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from bt_orchestrator.costs import FeeBook
 from bt_orchestrator.data.synthetic import (
     MarketSpec,
     bars_with_knowledge_times,
@@ -50,16 +51,20 @@ def write_synthetic(settings: Settings, symbols: list[str], n_bars: int | None =
     frames: dict[str, list[pd.DataFrame]] = {"bars": [], "trades": [], "book": []}
     fills, orders = [], []
     spec0: MarketSpec | None = None
+    fees = FeeBook(s.costs, s.data_dir)
     for k, symbol in enumerate(symbols):
         inst = instrument_spec(s, symbol)
-        spec = MarketSpec.from_settings(s.synthetic, symbol, s.market.venue, s.bar_interval_ns)
+        spec = MarketSpec.from_settings(
+            s.synthetic, symbol, s.market.venue, s.bar_interval_ns, s.market.calendar()
+        )
         spec = replace(spec, seed=spec.seed + k, n_bars=n_bars or spec.n_bars)
         spec0 = spec0 or spec
         tape = generate_tape(spec, inst)
-        bars = bars_from_trades(tape.trades, spec.start_ns, spec.end_ns, s.bar_interval_ns)
+        bars = bars_from_trades(tape.trades, spec.start_ns, spec.end_ns, s.bar_interval_ns, spec.session)
         frames["bars"].append(bars_with_knowledge_times(bars, symbol, s.bar_interval_ns))
         frames["trades"].append(with_knowledge_times(tape.trades, "ts_exchange", "ts_local"))
         frames["book"].append(with_knowledge_times(tape.book, "ts_exchange", "ts_local"))
+        costs = fees.for_instrument(s.synthetic.fills.venue, symbol, ticker=inst.base)
         synthetic_fills = generate_fills(
             s.synthetic.fills,
             symbol=symbol,
@@ -67,9 +72,14 @@ def write_synthetic(settings: Settings, symbols: list[str], n_bars: int | None =
             initial_price=spec.initial_price,
             vol_bps_per_sqrt_s=spec.vol_bps_per_sqrt_s,
             adv=average_daily_volume(bars, s.bar_interval_ns, s.market.seconds_per_day),
-            maker_fee=s.costs.maker_fee,
-            taker_fee=s.costs.taker_fee,
+            maker_fee=costs.maker_fee,
+            taker_fee=costs.taker_fee,
             seed=spec.seed + 1000,
+            lot_size=inst.lot_size,
+            qty_mean=s.synthetic.instruments[symbol].fills_qty_mean
+            if symbol in s.synthetic.instruments
+            else None,
+            session=spec.session,
         )
         fills.append(synthetic_fills.fills)
         orders.append(synthetic_fills.orders)

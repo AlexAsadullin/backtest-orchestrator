@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 import structlog
 
@@ -16,6 +17,16 @@ from bt_orchestrator.engines.factory import EngineFactory
 from bt_orchestrator.orchestrator import Orchestrator, instrument_spec
 from bt_orchestrator.settings import Settings
 from bt_orchestrator.strategies.registry import default_registry
+
+
+class _Stderr:
+    """Resolves ``sys.stderr`` at every write, so redirected or replaced streams are honoured."""
+
+    def write(self, text: str) -> int:
+        return sys.stderr.write(text)
+
+    def flush(self) -> None:
+        sys.stderr.flush()
 
 
 def configure_logging(settings: Settings) -> None:
@@ -32,6 +43,8 @@ def configure_logging(settings: Settings) -> None:
             renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(level),
+        # Logs go to stderr, so the JSON a CLI command prints on stdout stays parseable.
+        logger_factory=structlog.PrintLoggerFactory(_Stderr()),  # type: ignore[arg-type]
         cache_logger_on_first_use=False,
     )
 
@@ -55,6 +68,7 @@ def build_sim(settings: Settings) -> SimClient:
         settings.market.default_universe[0],
         settings.market.venue,
         settings.bar_interval_ns,
+        settings.market.calendar(),
     )
     instruments = {sym: instrument_spec(settings, sym) for sym in settings.market.instruments}
     return FakeSimService(settings.sim_fake_dir, base, instruments, settings.sim.fake_scenarios)
@@ -75,6 +89,7 @@ def build_orchestrator(settings: Settings) -> Orchestrator:
             settings.pit,
             venue=settings.market.venue,
             bar_interval_ns=settings.bar_interval_ns,
+            session=settings.market.calendar(),
         ),
         ledger=ledger,
         engines=EngineFactory(settings, build_sim(settings)),

@@ -19,10 +19,12 @@ from pydantic_settings import (
 )
 
 from bt_orchestrator.contracts.ledger import TrialSource
+from bt_orchestrator.data.session import SessionCalendar
 from bt_orchestrator.domain import Fidelity
 from bt_orchestrator.timeutil import NANOS_PER_SECOND
 
 CONFIG_ENV_VAR = "BT_CONFIG_FILE"
+PROFILE_ENV_VAR = "BT_PROFILE"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -30,6 +32,17 @@ def default_config_file() -> Path:
     """Return the YAML file holding the defaults (``BT_CONFIG_FILE`` overrides the repo default)."""
     override = os.environ.get(CONFIG_ENV_VAR)
     return Path(override) if override else REPO_ROOT / "config" / "settings.yaml"
+
+
+def profile_file() -> Path | None:
+    """Optional overlay ``config/profiles/<BT_PROFILE>.yaml`` (e.g. ``crypto``), merged over the defaults."""
+    name = os.environ.get(PROFILE_ENV_VAR)
+    if not name:
+        return None
+    path = REPO_ROOT / "config" / "profiles" / f"{name}.yaml"
+    if not path.is_file():
+        raise FileNotFoundError(f"{PROFILE_ENV_VAR}={name!r}: no profile file {path}")
+    return path
 
 
 class _Section(BaseModel):
@@ -130,6 +143,18 @@ class InstrumentSettings(_Section):
     lot_size: float
     price_precision: int
     size_precision: int
+    instrument_uid: str | None = None  # T-Invest instrument uid, matched against zero-fee sets
+
+
+class SessionSettings(_Section):
+    """One daily trading window in UTC on the given weekdays (0 = Monday)."""
+
+    open_utc: str
+    close_utc: str
+    weekdays: list[int]
+
+    def calendar(self) -> SessionCalendar:
+        return SessionCalendar.from_strings(self.open_utc, self.close_utc, self.weekdays)
 
 
 class MarketSettings(_Section):
@@ -139,11 +164,35 @@ class MarketSettings(_Section):
     seconds_per_day: float
     default_universe: list[str]
     instruments: dict[str, InstrumentSettings]
+    session: SessionSettings | None = None  # None: trades around the clock (the crypto profile)
+
+    def calendar(self) -> SessionCalendar | None:
+        return self.session.calendar() if self.session else None
+
+
+class ZeroFeeFundsSettings(_Section):
+    """Instruments with their own rates on a venue (T-Bank's own funds on the MOEX venues)."""
+
+    maker_fee: float
+    taker_fee: float
+    tickers: list[str]
+    instrument_uids: list[str]
+    reference_file: str | None = None  # relative to TRADEQ_DATA_DIR; an absent file is tolerated
+
+
+class VenueFeeSettings(_Section):
+    """Fee schedule of one venue: proportional rates on trade value per fill."""
+
+    source: str
+    maker_fee: float
+    taker_fee: float
+    zero_fee_funds: ZeroFeeFundsSettings | None = None
 
 
 class CostSettings(_Section):
-    maker_fee: float
+    maker_fee: float  # default rates, for venues without a schedule
     taker_fee: float
+    venues: dict[str, VenueFeeSettings] = Field(default_factory=dict)
 
 
 class AccountSettings(_Section):
@@ -214,6 +263,7 @@ class ParitySettings(_Section):
     rounding_ticks: float
     qty_lots: float
     fee_rel_tol: float
+    fee_rounding_abs: float
     pnl_rel_tol: float
     timing_window_bars: int
     max_disagreement_rate: float
@@ -260,6 +310,19 @@ class SyntheticFillsSettings(_Section):
     order_spacing_s: float
 
 
+class SyntheticInstrumentSettings(_Section):
+    """Per-symbol overrides of the synthetic market process (unset fields use the global values)."""
+
+    initial_price: float | None = None
+    vol_bps_per_sqrt_s: float | None = None
+    half_spread_ticks: int | None = None
+    max_extra_spread_ticks: int | None = None
+    level_size_mean: float | None = None
+    trade_rate_per_s: float | None = None
+    trade_size_mean: float | None = None
+    fills_qty_mean: float | None = None  # mean order size of the synthetic fills, in shares
+
+
 class SyntheticSettings(_Section):
     seed: int
     start: str
@@ -277,6 +340,7 @@ class SyntheticSettings(_Section):
     trade_size_mean: float
     feed_latency_ns: int
     fills: SyntheticFillsSettings
+    instruments: dict[str, SyntheticInstrumentSettings] = Field(default_factory=dict)
 
 
 class ReproduceSettings(_Section):
@@ -344,7 +408,9 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         yaml_source = YamlConfigSettingsSource(settings_cls, yaml_file=default_config_file())
-        return init_settings, env_settings, dotenv_settings, yaml_source, file_secret_settings
+        profile = profile_file()
+        overlay = () if profile is None else (YamlConfigSettingsSource(settings_cls, yaml_file=profile),)
+        return init_settings, env_settings, dotenv_settings, *overlay, yaml_source, file_secret_settings
 
     @property
     def project_dir(self) -> Path:

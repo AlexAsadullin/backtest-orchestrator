@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from bt_orchestrator.data.source import LeakageError
-from bt_orchestrator.data.synthetic_store import SyntheticPaths
-from bt_orchestrator.domain import Fidelity
+from bt_orchestrator.data.synthetic_store import SyntheticPaths, write_synthetic
+from bt_orchestrator.domain import CostSpec, Fidelity
 from bt_orchestrator.engines.base import EngineJob
 from bt_orchestrator.engines.nautilus_engine import NautilusEngine
 from bt_orchestrator.ladder import run_ladder
@@ -16,7 +17,8 @@ from bt_orchestrator.orchestrator import Orchestrator
 from bt_orchestrator.parity import run_parity
 from bt_orchestrator.reporting import calibration_markdown, ladder_markdown, parity_markdown, write_report
 from bt_orchestrator.sweeps import grid_points, random_points, run_sweep, walk_forward
-from conftest import run_spec
+from bt_orchestrator.wiring import build_orchestrator
+from conftest import make_settings, run_spec
 
 FAST = {"fast": 10, "slow": 40}
 
@@ -47,16 +49,16 @@ def test_limit_orders_on_event_engines(
 def test_nautilus_trades_mode(orch: Orchestrator, synthetic: SyntheticPaths) -> None:
     s = orch.settings
     spec = run_spec(synthetic, "sma_cross", **FAST)
-    bundle = orch.load(spec, "BTC-USDT-PERP", Fidelity.TICK)
+    bundle = orch.load(spec, "SBER-RUB-TQBR", Fidelity.TICK)
     strategy = orch.registry.get("sma_cross")
-    engine = NautilusEngine(s.engines.nautilus.model_copy(update={"data_mode": "trades"}), 10.0, 86400.0)
+    engine = NautilusEngine(s.engines.nautilus.model_copy(update={"data_mode": "trades"}), 10.0, 31200.0)
     job = EngineJob(
         strategy=strategy,
         params=orch.params(strategy, FAST),
-        instrument=orch.instrument("BTC-USDT-PERP"),
+        instrument=orch.instrument("SBER-RUB-TQBR"),
         bars=bundle.bars,
         bar_interval_ns=s.bar_interval_ns,
-        costs=orch.costs(),
+        costs=orch.costs("SBER-RUB-TQBR"),
         initial_cash=s.account.initial_cash,
         seed=1,
         tape=bundle.tape,
@@ -129,9 +131,26 @@ def test_sweeps_and_walk_forward(orch: Orchestrator, synthetic: SyntheticPaths) 
 def test_report_writers(orch: Orchestrator, tmp_path: object) -> None:
     from pathlib import Path
 
-    bundle = orch.models.load(orch.settings.market.venue, "BTC-USDT-PERP")
+    bundle = orch.models.load(orch.settings.market.venue, "SBER-RUB-TQBR")
     assert bundle is not None
     md = calibration_markdown(bundle)
     assert "Brier" in md
     out = write_report(Path(str(tmp_path)), "x", {"a": 1}, md)
     assert out.read_text() == md
+
+
+def test_parity_passes_with_moex_fees(tmp_path: Path) -> None:
+    """At 0.25% on a 285-rouble share Nautilus books whole kopecks; parity counts that as rounding."""
+    symbol = "SBER-RUB-TQBR"
+    s = make_settings(
+        tmp_path / "data",
+        market={"venue": "moex-tbank", "default_universe": [symbol]},
+        synthetic={"initial_price": 285.0},
+    )
+    paths = write_synthetic(s, [symbol])
+    o = build_orchestrator(s)
+    assert o.costs(symbol) == CostSpec(0.0025, 0.0025)
+    (r,) = run_parity(o, replace(run_spec(paths, "sma_cross", **FAST), universe=[symbol]))
+    assert r.passed
+    assert r.material_disagreement_rate == 0.0
+    assert r.counts.get("rounding", 0) > 0

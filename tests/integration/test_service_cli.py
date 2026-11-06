@@ -23,7 +23,7 @@ def body(paths: SyntheticPaths, **kw: object) -> dict[str, object]:
     return {
         "strategy": "sma_cross",
         "params": {"fast": 10, "slow": 40},
-        "universe": ["BTC-USDT-PERP"],
+        "universe": ["SBER-RUB-TQBR"],
         "start": paths.start,
         "end": paths.end,
         "known_at": paths.end,
@@ -87,10 +87,10 @@ def test_cli_commands(cli_env: Settings) -> None:
     def ok(*args: str) -> str:
         result = runner.invoke(cli.app, list(args))
         assert result.exit_code == 0, result.output
-        return result.output
+        return result.stdout
 
     synth = json.loads(ok("synth"))
-    assert synth["start"] == "2026-01-05T00:00:00Z"
+    assert synth["start"] == "2026-01-05T07:00:00Z"
     assert "Fill model v1" in ok("calibrate", "--synthetic")
     run = json.loads(ok("run", "--strategy", "sma_cross", "-p", "fast=10", "-p", "slow=40"))
     assert run["engine"] == "vectorbt"

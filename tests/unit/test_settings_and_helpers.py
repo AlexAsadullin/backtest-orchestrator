@@ -28,7 +28,7 @@ def test_settings_paths_and_lookups(settings: Settings) -> None:
     assert settings.fills_root.is_relative_to(settings.data_dir)
     assert settings.orders_root.is_relative_to(settings.data_dir)
     assert settings.bar_interval_ns == 60_000_000_000
-    assert settings.periods_per_year == pytest.approx(525600.0)
+    assert settings.periods_per_year == pytest.approx(252 * 520)  # MOEX main sessions
     with pytest.raises(KeyError, match="no settings"):
         settings.strategy_settings("nope")
     with pytest.raises(KeyError, match="not configured"):

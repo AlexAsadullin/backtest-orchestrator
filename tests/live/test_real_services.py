@@ -43,7 +43,7 @@ LEDGER_REPO = WORKSPACE / "research-ledger"
 PIT_BIN = PIT_REPO / ".venv" / "bin" / "pit"
 LEDGER_BIN = LEDGER_REPO / ".venv" / "bin" / "ledger"
 LEDGER_PYTHON = LEDGER_REPO / ".venv" / "bin" / "python"
-SYMBOL = "BTC-USDT-PERP"
+SYMBOL = "SBER-RUB-TQBR"
 N_BARS = 240
 STARTUP_TIMEOUT_S = 60.0
 LOOPBACK = "127.0.0.1"
@@ -123,7 +123,11 @@ def _seed_i2(svc: Services) -> MarketSpec:
     """Write a synthetic I1 tape under the scratch root and ingest it with I2's own CLI."""
     settings = make_settings(svc.data_dir)
     spec = MarketSpec.from_settings(
-        settings.synthetic, SYMBOL, settings.market.venue, settings.bar_interval_ns
+        settings.synthetic,
+        SYMBOL,
+        settings.market.venue,
+        settings.bar_interval_ns,
+        settings.market.calendar(),
     )
     spec = replace(spec, n_bars=N_BARS)
     tape = generate_tape(spec, instrument_spec(settings, SYMBOL))

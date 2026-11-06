@@ -8,6 +8,7 @@ I2's own fingerprint of every dataset it read, primary dataset first.
 from __future__ import annotations
 
 from bt_orchestrator.contracts.pit import PitFilter, PitQuery
+from bt_orchestrator.data.session import SessionCalendar
 from bt_orchestrator.data.source import DataSource, QueryResult
 from bt_orchestrator.data.tape import BOOK_DELTA_COLUMNS, TRADE_COLUMNS, bars_from_trades
 from bt_orchestrator.domain import BAR_COLUMNS, DataBundle, Tape, validate_bars
@@ -16,8 +17,17 @@ from bt_orchestrator.timeutil import to_ns
 
 
 class MarketData:
-    def __init__(self, source: DataSource, cfg: PitSettings, *, venue: str, bar_interval_ns: int) -> None:
+    def __init__(
+        self,
+        source: DataSource,
+        cfg: PitSettings,
+        *,
+        venue: str,
+        bar_interval_ns: int,
+        session: SessionCalendar | None = None,
+    ) -> None:
         self._source = source
+        self._session = session
         self._cfg = cfg
         self._venue = venue
         self._interval = bar_interval_ns
@@ -69,7 +79,7 @@ class MarketData:
             trades = fetch("trades", ds.trades, True)
             if trades.frame.empty:
                 raise ValueError(f"no trades for {symbol} in [{start}, {end})")
-            bars = bars_from_trades(trades.frame, to_ns(start), to_ns(end), self._interval)
+            bars = bars_from_trades(trades.frame, to_ns(start), to_ns(end), self._interval, self._session)
         else:
             raw = fetch("bars", ds.bars, False)
             if raw.frame.empty:

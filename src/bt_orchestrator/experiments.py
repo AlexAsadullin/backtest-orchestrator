@@ -51,6 +51,7 @@ from bt_orchestrator.calibration.fit import (
     split_out_of_time,
 )
 from bt_orchestrator.contracts.ledger import Actor
+from bt_orchestrator.data.synthetic import MarketSpec
 from bt_orchestrator.data.synthetic_store import SyntheticPaths, write_synthetic
 from bt_orchestrator.domain import Fidelity, make_fills
 from bt_orchestrator.engines.base import EngineResult, mark_to_market
@@ -160,13 +161,15 @@ def prepare_seed(base: Settings, seed: int) -> SeedContext:
 # -- E1 fill models against the generating process ------------------------------------------------
 
 
-def true_fill_prob(s: Settings, frame: pd.DataFrame) -> np.ndarray:
+def true_fill_prob(s: Settings, frame: pd.DataFrame, symbol: str) -> np.ndarray:
     """P(fill within the horizon) under the synthetic hazard, at the estimated volatility."""
     f = s.synthetic.fills
+    vol_ref = MarketSpec.from_settings(s.synthetic, symbol, s.market.venue, s.bar_interval_ns)
+    vol_ref_bps = vol_ref.vol_bps_per_sqrt_s
     hazard = f.base_hazard_per_s * np.exp(
         -f.distance_coef * frame["distance_to_touch_bps"].to_numpy()
         - f.queue_coef * np.log1p(frame["queue_ahead"].to_numpy())
-        + f.vol_coef * (frame["vol_bps_sqrt_s"].to_numpy() - s.synthetic.vol_bps_per_sqrt_s)
+        + f.vol_coef * (frame["vol_bps_sqrt_s"].to_numpy() - vol_ref_bps)
     )
     horizon_s = s.calibration.horizon_ns / 1e9
     result: np.ndarray = 1.0 - np.exp(-hazard * horizon_s)
@@ -204,7 +207,7 @@ def experiment_fill_models(ctx: SeedContext) -> dict[str, float]:
     slip = fit_slippage(tak_train)
 
     y = lim_test["label"].to_numpy(dtype="float64")
-    p_true = true_fill_prob(s, lim_test)
+    p_true = true_fill_prob(s, lim_test, ctx.symbol)
     p_cal = predict_fill_prob(prob, lim_test)
     base_rate = float(lim_train["label"].mean())
     out: dict[str, float] = {

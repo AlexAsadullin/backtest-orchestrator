@@ -31,4 +31,6 @@ class EngineFactory:
             return NautilusEngine(s.engines.nautilus, s.account.leverage, s.market.seconds_per_day)
         if fidelity is Fidelity.TICK:
             return self.tick()
-        return ReactiveSimEngine(self._sim, self.tick(), s.sim.scenario, s.sim.max_duration_s)
+        return ReactiveSimEngine(
+            self._sim, self.tick(), s.sim.scenario, s.sim.max_duration_s, s.market.calendar()
+        )

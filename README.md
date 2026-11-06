@@ -4,11 +4,11 @@ The orchestrator runs one engine-agnostic strategy on three existing engines, ve
 NautilusTrader (event-driven) and hftbacktest (tick replay with queue position and latency), plus the S3
 reactive simulator. It joins them into a fidelity ladder with promotion gates, learns fill probability,
 slippage and latency from Shadow Exchange fills, checks cross-engine parity, and logs every run to the
-Research Ledger. It does not build a new engine. On synthetic data with a known fill process, the calibrated
-fill probability missed the true probability by 0.021 on average (95% CI 0.018 to 0.025, 8 seeds), while the
-touch-fills assumption of bar engines missed it by 0.752. Over 240 screened candidates the gated ladder made
-no false promotion and used 24.5 s of engine time, against 140.5 s for running every candidate on
-hftbacktest. Details are in [docs/report.md](docs/report.md).
+Research Ledger. It does not build a new engine. On the synthetic MOEX market (SBER-like, 10-share lots, 0.25%
+commission) with a known fill process, the calibrated fill probability missed the true probability by 0.015 on
+average (95% CI 0.012 to 0.018, 8 seeds), while the touch-fills assumption of bar engines missed it by 0.764.
+Over 240 screened candidates the gated ladder made no false promotion and used 3.0 s of engine time, against
+51.6 s for running every candidate on hftbacktest. Details are in [docs/report.md](docs/report.md).
 
 Specification: `quant_platform_plan_full.md`, section "I5. Multi-fidelity backtest orchestrator".
 
@@ -17,7 +17,7 @@ Specification: `quant_platform_plan_full.md`, section "I5. Multi-fidelity backte
 ```bash
 cp .env.example .env            # set TRADEQ_DATA_DIR=/Users/.../Tradeq/data
 make setup                      # uv venv --python 3.13 .venv, uv sync --frozen
-make lint typecheck test        # ruff, mypy --strict, pytest with coverage (offline, about 30 s)
+make lint typecheck test        # ruff, mypy --strict, pytest with coverage (offline, 25 to 60 s with load)
 make reproduce                  # synthetic market and fills, calibration, two ladders, parity, sweep (about 1 min)
 make report                     # experiments E1 to E5 behind docs/report.md, 8 seeds (about 7 min)
 make serve                      # HTTP service on 127.0.0.1:8606
@@ -48,7 +48,22 @@ nested delimiter `__`, for example `BT_SERVICE__PORT=9606`. `TRADEQ_DATA_DIR` is
 | `ladder.promotion.<rung>` | see file | gate per rung: minimum Sharpe and fills, maximum drawdown and Sharpe drop |
 | `parity.*` | see file | tolerances: ticks and lots counted as rounding, fee rate, PnL, timing window |
 | `calibration.horizon_ns` | 60 s | a limit order counts as filled if it fills within one bar |
-| `costs.maker_fee`, `costs.taker_fee` | 2 bps, 5 bps | identical fees for every engine |
+| `market.venue`, `market.instruments` | SYNTH | venue and instruments; MOEX stocks SBER, GAZP, LKOH (`<SECID>-RUB-TQBR`) run with `BT_MARKET__VENUE=moex-tbank` |
+| `costs.maker_fee`, `costs.taker_fee` | 2 bps, 5 bps | default fees, for venues without a schedule (the synthetic crypto market) |
+| `costs.venues.<venue>` | MOEX venues | fee schedule per venue, see Fees |
+| `parity.fee_rounding_abs` | 0.01 | fee difference per fill that parity counts as rounding (one kopeck or cent) |
+
+### Fees
+
+Every rung (vectorbt, NautilusTrader, hftbacktest, the S3 rung on hftbacktest) gets the same `CostSpec` per
+symbol from `costs.py`, and the synthetic fills behind calibration use the same rates. The MOEX venues
+(`moex-tbank`, `moex-algopack`, `moex-iss`) use the T-Invest basic tariff per user, 2026-11-05: 0.25% of trade
+value per fill, maker and taker alike, and 0% for T-Bank's own funds (T-Capital ETFs). The zero-fee set is
+`costs.venues.<venue>.zero_fee_funds` (tickers and instrument uids) merged with I1's
+`$TRADEQ_DATA_DIR/market-tape-recorder/reference/tbank_zero_fee_funds.json` when it exists; without the file
+the config list is used and a warning is logged. Trading is simulated locally; there is no broker. Nautilus
+rounds each commission to the kopeck while the other engines do not, so parity counts fee differences up to
+`parity.fee_rounding_abs` per fill as rounding. The crypto defaults stay for the synthetic report market.
 
 ## Architecture
 
@@ -93,16 +108,16 @@ data; each dataset's fingerprint is also a tag `fingerprint:<symbol>:<dataset>=<
 
 ## Key results
 
-Synthetic data only (8 seeds of 1440 one-minute bars and 6000 synthetic orders each); see
-[docs/report.md](docs/report.md).
+Synthetic data only (8 seeds of 1440 one-minute bars and 6000 synthetic orders each), MOEX market, rerun
+2026-11-06; [docs/report.md](docs/report.md) still has the method and the pre-MOEX numbers.
 
 | Result | Value (95% CI) | Sample |
 |---|---|---|
-| Mean error of fill probability vs the true process: calibrated / touch fills / fills-only | 0.021 (0.018 to 0.025) / 0.752 (0.729 to 0.776) / 0.105 (0.095 to 0.115) | 8 seeds, about 1262 held-out orders each |
-| Mean error of expected taker slippage: calibrated / half spread | 0.013 bps (0.009 to 0.016) / 0.269 bps (0.263 to 0.275) | 8 seeds, about 538 held-out fills each |
-| False promotions: gated ladder / vectorbt alone | 0/240 (0% to 2%) / 6/240 (1% to 5%) | 240 candidates |
-| Engine time to screen the candidates: ladder / hftbacktest alone | 24.5 s / 140.5 s | 240 candidates |
-| Planted engine bugs detected: parity classifier / PnL tolerance / fill count | 64/64 (94% to 100%) / 20/64 (21% to 43%) / 16/64 (16% to 37%) | 4 fault types, 16 runs each |
+| Mean error of fill probability vs the true process: calibrated / touch fills / fills-only | 0.015 (0.012 to 0.018) / 0.764 (0.754 to 0.774) / 0.104 (0.093 to 0.116) | 8 seeds, about 1262 held-out orders each |
+| Mean error of expected taker slippage: calibrated / half spread | 0.013 bps (0.010 to 0.017) / 0.335 bps (0.328 to 0.342) | 8 seeds, about 538 held-out fills each |
+| False promotions: gated ladder / vectorbt alone | 0/240 (0% to 2%) / 0/240 (0% to 2%); 4 tick-passing candidates missed by both | 240 candidates |
+| Engine time to screen the candidates: ladder / hftbacktest alone | 3.0 s / 51.6 s | 240 candidates |
+| Planted engine bugs detected: parity classifier / PnL tolerance / fill count | 64/64 (94% to 100%) / 0/64 (0% to 6%) / 16/64 (16% to 37%) | 4 fault types, 16 runs each |
 
 ## Limitations
 

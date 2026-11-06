@@ -15,6 +15,12 @@ fill is exponential with hazard ``base * exp(-a d - b log1p(q) + c (vol - vol_re
 does not fill within ``order_ttl_s`` is cancelled and appears only in the orders extension file. Market
 orders pay ``half_spread + k sqrt(qty / ADV)`` bps plus Gaussian noise. These are the ground truths the
 calibration tests recover.
+
+Sessions
+--------
+With a :class:`~bt_orchestrator.data.session.SessionCalendar` (the MOEX default), every process runs in
+trading time and is then mapped onto the session windows, so nights and weekends carry no quotes, trades,
+bars or orders. Without one (the crypto profile) the market trades around the clock.
 """
 
 from __future__ import annotations
@@ -25,8 +31,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from bt_orchestrator.data.session import SessionCalendar
 from bt_orchestrator.domain import InstrumentSpec, Tape
-from bt_orchestrator.settings import ScenarioSettings, SyntheticFillsSettings, SyntheticSettings
+from bt_orchestrator.settings import (
+    ScenarioSettings,
+    SyntheticFillsSettings,
+    SyntheticInstrumentSettings,
+    SyntheticSettings,
+)
 from bt_orchestrator.timeutil import NANOS_PER_SECOND, to_ns
 
 BPS = 1e4
@@ -53,11 +65,23 @@ class MarketSpec:
     trade_size_mean: float
     feed_latency_ns: int
     seed: int
+    session: SessionCalendar | None = None
 
     @classmethod
     def from_settings(
-        cls, cfg: SyntheticSettings, symbol: str, venue: str, bar_interval_ns: int
+        cls,
+        cfg: SyntheticSettings,
+        symbol: str,
+        venue: str,
+        bar_interval_ns: int,
+        session: SessionCalendar | None = None,
     ) -> MarketSpec:
+        """Global synthetic settings with the per-symbol overrides of ``synthetic.instruments``."""
+        o = cfg.instruments.get(symbol) or SyntheticInstrumentSettings()
+
+        def pick[T](override: T | None, default: T) -> T:
+            return default if override is None else override
+
         return cls(
             symbol=symbol,
             venue=venue,
@@ -65,18 +89,19 @@ class MarketSpec:
             n_bars=cfg.n_bars,
             bar_interval_ns=bar_interval_ns,
             quote_interval_ns=cfg.quote_interval_ms * 1_000_000,
-            initial_price=cfg.initial_price,
-            vol_bps_per_sqrt_s=cfg.vol_bps_per_sqrt_s,
+            initial_price=pick(o.initial_price, cfg.initial_price),
+            vol_bps_per_sqrt_s=pick(o.vol_bps_per_sqrt_s, cfg.vol_bps_per_sqrt_s),
             regime_bars=cfg.regime_bars,
             trend_bps_per_bar=cfg.trend_bps_per_bar,
-            half_spread_ticks=cfg.half_spread_ticks,
-            max_extra_spread_ticks=cfg.max_extra_spread_ticks,
+            half_spread_ticks=pick(o.half_spread_ticks, cfg.half_spread_ticks),
+            max_extra_spread_ticks=pick(o.max_extra_spread_ticks, cfg.max_extra_spread_ticks),
             book_levels=cfg.book_levels,
-            level_size_mean=cfg.level_size_mean,
-            trade_rate_per_s=cfg.trade_rate_per_s,
-            trade_size_mean=cfg.trade_size_mean,
+            level_size_mean=pick(o.level_size_mean, cfg.level_size_mean),
+            trade_rate_per_s=pick(o.trade_rate_per_s, cfg.trade_rate_per_s),
+            trade_size_mean=pick(o.trade_size_mean, cfg.trade_size_mean),
             feed_latency_ns=cfg.feed_latency_ns,
             seed=cfg.seed,
+            session=session,
         )
 
     def with_scenario(self, scenario: ScenarioSettings, seed: int, n_bars: int) -> MarketSpec:
@@ -93,7 +118,17 @@ class MarketSpec:
 
     @property
     def end_ns(self) -> int:
-        return self.start_ns + self.n_bars * self.bar_interval_ns
+        """Wall time of the end of the last bar (the close of its session with a calendar)."""
+        offset = self.n_bars * self.bar_interval_ns
+        if self.session is None:
+            return self.start_ns + offset
+        return int(self.session.to_wall(self.start_ns, np.array([offset]), closing=True)[0])
+
+    def wall(self, ts: np.ndarray) -> np.ndarray:
+        """Map trading-clock times (``start_ns`` plus trading time) onto the session calendar."""
+        if self.session is None:
+            return np.asarray(ts, dtype="int64")
+        return self.session.to_wall(self.start_ns, np.asarray(ts, dtype="int64") - self.start_ns)
 
 
 def _mid_path(spec: MarketSpec, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
@@ -214,6 +249,10 @@ def generate_tape(spec: MarketSpec, inst: InstrumentSpec) -> Tape:
     bid, ask = _touch_ticks(spec, inst, mid, rng)
     book = _book_deltas(spec, inst, ts, bid, ask, rng)
     trades = _trades(spec, inst, ts, bid, ask, rng)
+    if spec.session is not None:
+        for frame in (book, trades):
+            frame["ts_exchange"] = spec.wall(frame["ts_exchange"].to_numpy(dtype="int64"))
+            frame["ts_local"] = frame["ts_exchange"] + spec.feed_latency_ns
     return Tape(symbol=spec.symbol, trades=trades, book=book)
 
 
@@ -251,13 +290,22 @@ def generate_fills(
     maker_fee: float,
     taker_fee: float,
     seed: int,
+    lot_size: float = 0.001,
+    qty_mean: float | None = None,
+    session: SessionCalendar | None = None,
 ) -> SyntheticFills:
-    """Generate an I6-style fills export plus the optional orders extension (see module docstring)."""
+    """Generate an I6-style fills export plus the optional orders extension (see module docstring).
+
+    Quantities are whole multiples of ``lot_size`` (at least one lot) with mean about ``qty_mean``
+    (default ``cfg.qty_mean``). With a ``session`` calendar, order and fill times are drawn in trading
+    time and mapped onto the sessions.
+    """
     rng = np.random.default_rng(seed)
     n = cfg.n_orders
     gaps = rng.exponential(cfg.order_spacing_s, size=n)
     t_s = np.cumsum(gaps)
-    ts_submit = start_ns + (t_s * NANOS_PER_SECOND).astype("int64")
+    submit_offset = (t_s * NANOS_PER_SECOND).astype("int64")
+    ts_submit = start_ns + submit_offset
     # Volatility regimes, so the fill model can identify the volatility effect.
     regime = np.arange(n) // max(1, n // 20)
     vol_levels = vol_bps_per_sqrt_s * rng.lognormal(0.0, 0.4, size=regime.max() + 1)
@@ -267,7 +315,8 @@ def generate_fills(
 
     is_limit = rng.random(n) < cfg.limit_share
     side = np.where(rng.random(n) < 0.5, 1, -1)
-    qty = np.maximum(np.round(rng.exponential(cfg.qty_mean, size=n), 3), 0.001)
+    lots = np.round(rng.exponential(qty_mean or cfg.qty_mean, size=n) / lot_size)
+    qty = np.round(np.maximum(lots, 1.0) * lot_size, 9)
     latency = (cfg.latency_median_ns * rng.lognormal(0.0, cfg.latency_sigma, size=n)).astype("int64")
 
     distance = np.where(is_limit, rng.uniform(0.0, cfg.max_distance_bps, size=n), 0.0)
@@ -292,6 +341,9 @@ def generate_fills(
     ts_fill = np.where(
         is_limit, ts_submit + latency + (ttf_s * NANOS_PER_SECOND).astype("int64"), ts_submit + latency
     )
+    if session is not None:
+        ts_fill = session.to_wall(start_ns, ts_fill - start_ns)
+        ts_submit = session.to_wall(start_ns, submit_offset)
     filled = limit_filled | ~is_limit
     liquidity = np.where(is_limit, "maker", "taker")
     fee = np.abs(price * qty) * np.where(is_limit, maker_fee, taker_fee)
@@ -337,7 +389,11 @@ def generate_fills(
             "side": side_str,
             "order_type": order_type,
             "ts_submit": ts_submit,
-            "ts_done": np.where(limit_filled, ts_fill, ts_submit + ttl_ns),
+            "ts_done": np.where(
+                limit_filled,
+                ts_fill,
+                ts_submit + ttl_ns if session is None else session.to_wall(start_ns, submit_offset + ttl_ns),
+            ),
             "status": np.where(limit_filled, "filled", "cancelled"),
             "qty": qty,
             "arrival_mid": mid,

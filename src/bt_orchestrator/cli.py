@@ -71,6 +71,7 @@ def _spec(
         settings.market.default_universe[0],
         settings.market.venue,
         settings.bar_interval_ns,
+        settings.market.calendar(),
     )
     start = start or ns_to_iso(spec0.start_ns)
     end = end or ns_to_iso(spec0.end_ns)

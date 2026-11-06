@@ -8,10 +8,12 @@ are compared field by field; unmatched ones are paired across nearby bars when p
 Disagreement kinds
 ------------------
 * ``partial_fill`` - same total quantity, split into a different number of fills;
-* ``rounding`` - price within ``rounding_ticks`` ticks or quantity within ``qty_lots`` lots;
+* ``rounding`` - price within ``rounding_ticks`` ticks, quantity within ``qty_lots`` lots, or a fee within
+  ``fee_rounding_abs`` per fill (Nautilus rounds each commission to the quote currency's minor unit,
+  for example to the kopeck at 0.25% on a 285-rouble share);
 * ``fill_price`` - same bar and side, price differs by more than the rounding allowance;
 * ``quantity`` - quantity differs by more than the rounding allowance;
-* ``fee`` - the fee rate charged on the notional differs;
+* ``fee`` - the fee rate charged on the notional differs by more than the rounding allowance;
 * ``fill_timing`` - the same execution lands in a different bar (within ``timing_window_bars``);
 * ``missing_in_a`` / ``missing_in_b`` - an execution has no counterpart.
 
@@ -112,7 +114,8 @@ def _compare(ea: pd.Series, eb: pd.Series, inst: InstrumentSpec, cfg: ParitySett
     rate_a = float(ea["fee"]) / (float(ea["qty"]) * float(ea["vwap"]))
     rate_b = float(eb["fee"]) / (float(eb["qty"]) * float(eb["vwap"]))
     if abs(rate_a - rate_b) > cfg.fee_rel_tol * max(abs(rate_a), abs(rate_b), 1e-12):
-        kinds.append("fee")
+        fee_tol = cfg.fee_rounding_abs * max(int(ea["n_fills"]), int(eb["n_fills"])) + 1e-12
+        kinds.append("rounding" if abs(float(ea["fee"]) - float(eb["fee"])) <= fee_tol else "fee")
     return list(dict.fromkeys(kinds))
 
 

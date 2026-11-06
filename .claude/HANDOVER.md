@@ -1,7 +1,7 @@
 # HANDOVER: backtest-orchestrator (Tradeq I5)
 
-Last updated 2026-10-23 by the I5 developer agent after the integration pass against the shipped I2 and S6
-(earlier sections written 2026-10-22 by the orchestrating session).
+Last updated 2026-11-05 (T-Invest fees for MOEX). Earlier sections: 2026-10-22 and 2026-10-23 (integration pass
+against the shipped I2 and S6), 2026-10-29 (MOEX pivot).
 
 ## Goal
 
@@ -48,8 +48,8 @@ synthetic data, then calibration, ladders, parity, a sweep and a report.
 
 1. Commit e0e93d3 (by the stopped agent): `.gitignore` had an unanchored `data/` pattern that hid the source package `src/bt_orchestrator/data/`; it is anchored to `/data/` now.
 2. Commit 5f74116 added `src/bt_orchestrator/experiments.py` (E1 to E5, 8 fixed seeds 101 to 108, 1440 bars each, Student t and Wilson intervals, paired t-tests) and replaced the unused `experiments.speed_repeats` and `experiments.docs_tables` settings with `fault_fee_bps`, `fault_price_ticks` and `fault_share`. `make report` works: about 7.5 minutes, outputs `tables.md` and `experiments.json` in `$TRADEQ_DATA_DIR/backtest-orchestrator/reports/`, per-seed data in `$TRADEQ_DATA_DIR/backtest-orchestrator/experiments/seed-*`, trials in a private inbox there.
-3. Commit 227532a added 72 tests (unit and integration, offline, about 30 s); coverage is 98%. `make lint typecheck test` is clean.
-4. Commit 865d578 wrote the lean README. `docs/report.md` text was returned to the orchestrator (subagents cannot write report files), so the orchestrator writes and commits it.
+3. Commit 227532a added the test suite (72 tests then; 84 offline tests plus 1 live integration test as of 2026-11-05, 18 to 40 s of pytest depending on load); coverage is 98%. `make lint typecheck test` is clean.
+4. Commit 865d578 wrote the lean README. `docs/report.md` is committed.
 5. Headline results (synthetic): calibrated fill-probability error 0.021 against 0.752 for touch fills; the gated ladder made 0 false promotions in 240 candidates at 24.5 s of engine time against 140.5 s for hftbacktest alone; the parity classifier detected 64 of 64 planted bugs against 20 for a PnL tolerance.
 6. Open findings: NautilusTrader applies `prob_fill_on_limit` only when the market rests on the limit price, so the calibrated probability barely changes bar-mode fills (E4 shows no significant gain); the ladder missed 22 of 51 tick-accepted candidates because the vectorised gate asks for 10 fills while the tick gate asks for 5, and the event gate caps the Sharpe drop at 2.0. Both are in the README roadmap; no threshold was tuned.
 
@@ -84,3 +84,32 @@ ticks from the MOEX securities table), so I9's real-service test can run a backt
 real I2 (`BT_MARKET__VENUE=moex-tbank`). The crypto instruments stay, because the report experiments use a
 synthetic BTC market. `make test` unchanged (76 passed). Next for I5 (not done): calibrate fills from I6 MOEX
 fills and the I9 mirror, and run the ladder on a recorded MOEX day.
+
+## T-Invest fees for MOEX (2026-11-05)
+
+User decision: local MOEX simulations charge the real T-Invest basic tariff, 0.25% of trade value per fill, and
+0% for T-Bank's own funds (T-Capital ETFs); there is no broker. Not committed yet.
+1. `costs.py` (`FeeBook`) resolves a `CostSpec` per venue and symbol: `costs.venues.<venue>` (moex-tbank,
+   moex-algopack, moex-iss share one YAML anchor; `source` cites the decision), else the default `costs.maker_fee`
+   and `costs.taker_fee` (crypto rates, kept for the synthetic SYNTH market). `Orchestrator.costs(symbol)` feeds every
+   rung; `write_synthetic` uses it for the calibration fills. Zero-fee set: `zero_fee_funds.tickers` and
+   `instrument_uids` (optional `market.instruments.<s>.instrument_uid`) plus I1's
+   `market-tape-recorder/reference/tbank_zero_fee_funds.json` (key `funds`); an absent file logs
+   `zero_fee_reference_missing` and falls back to config; a malformed one raises. The ticker list matches I9's.
+2. NautilusTrader could not run a hyphenated venue (`moex-tbank` failed its account-id check); `nautilus_venue`
+   turns hyphens into underscores.
+3. Nautilus rounds each commission to the kopeck (0.71 instead of 0.7125 on a 285-rouble share), which parity flagged
+   as `fee` on every MOEX execution. `parity.fee_rounding_abs: 0.01` per fill now counts as rounding; a 2 bps fee
+   fault is still a `fee`. Report numbers do not change (no real `fee` kinds in E5; SYNTH fees unchanged).
+4. Tests: 84 passed (8 new: `tests/unit/test_costs.py`, a parity rounding case, MOEX parity at SBER prices);
+   `make integration` passed (1 passed in 4.5 s).
+5. Open: vectorbt and hftbacktest do not round fees to the kopeck (I9's mirror and S8 do); the difference is at most
+   half a kopeck per fill.
+
+## Report rerun on the MOEX market (2026-11-06)
+
+`BT_LEDGER__MODE=inbox make report` (about 7 min) on the MOEX default market (crypto in `config/profiles/crypto.yaml`).
+Fill-probability MAE calibrated 0.015 vs touch fills 0.764; ladder 0/240 false promotions, 3.0 s vs 51.6 s on
+hftbacktest; parity classifier 64/64 planted faults. With the 0.25% commission only 4 of 240 candidates pass
+the tick rung, and both the ladder and vectorbt miss all 4 (the gate mismatch noted above). README updated;
+docs/report.md keeps the pre-MOEX numbers.

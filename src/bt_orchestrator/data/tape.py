@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from bt_orchestrator.data.session import SessionCalendar
 from bt_orchestrator.domain import BAR_COLUMNS, Tape
 
 TRADE_COLUMNS: tuple[str, ...] = (
@@ -46,11 +47,18 @@ def event_time(frame: pd.DataFrame) -> np.ndarray:
     return np.where(np.isnan(exch), local, exch).astype("int64")
 
 
-def bars_from_trades(trades: pd.DataFrame, start_ns: int, end_ns: int, interval_ns: int) -> pd.DataFrame:
+def bars_from_trades(
+    trades: pd.DataFrame,
+    start_ns: int,
+    end_ns: int,
+    interval_ns: int,
+    session: SessionCalendar | None = None,
+) -> pd.DataFrame:
     """Aggregate trades into OHLCV bars on the grid ``[start_ns, end_ns)``.
 
     A bar without trades repeats the previous close with zero volume; bars before the first trade are
-    dropped, because no price is known yet.
+    dropped, because no price is known yet. With a ``session`` calendar, bars that open outside a
+    session (nights, weekends) are dropped too, so closed hours are not filled with flat bars.
     """
     if end_ns <= start_ns:
         raise ValueError("end_ns must be after start_ns")
@@ -81,6 +89,8 @@ def bars_from_trades(trades: pd.DataFrame, start_ns: int, end_ns: int, interval_
     agg["volume"] = agg["volume"].fillna(0.0)
     agg["ts"] = start_ns + agg.index.to_numpy(dtype="int64") * interval_ns
     agg = agg.dropna(subset=["close"])
+    if session is not None:
+        agg = agg[session.in_session(agg["ts"].to_numpy(dtype="int64"))]
     return agg.loc[:, list(BAR_COLUMNS)].reset_index(drop=True)
 
 

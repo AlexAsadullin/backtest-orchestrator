@@ -75,7 +75,7 @@ def run_spec(paths: SyntheticPaths, strategy: str, **params: Any) -> RunSpec:
     return RunSpec(
         strategy=strategy,
         params=params,
-        universe=["BTC-USDT-PERP"],
+        universe=["SBER-RUB-TQBR"],
         start=paths.start,
         end=paths.end,
         known_at=paths.end,

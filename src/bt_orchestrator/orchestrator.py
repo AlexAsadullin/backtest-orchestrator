@@ -21,6 +21,7 @@ from bt_orchestrator.calibration.models import FillModelBundle
 from bt_orchestrator.calibration.store import FillModelStore
 from bt_orchestrator.clients.ledger import LedgerClient
 from bt_orchestrator.contracts.ledger import Actor, TrialRecord
+from bt_orchestrator.costs import FeeBook
 from bt_orchestrator.data.market import MarketData
 from bt_orchestrator.data.source import LeakageError
 from bt_orchestrator.data.tape import bars_from_trades
@@ -147,14 +148,19 @@ class Orchestrator:
         self.models = models
         self.registry = registry
         self._trials = TrialBuilder(settings.ledger, settings.trials_dir, settings.code_version)
+        self.fees = FeeBook(settings.costs, settings.data_dir)
 
     # -- building blocks -------------------------------------------------------------------------
 
     def instrument(self, symbol: str) -> InstrumentSpec:
         return instrument_spec(self.settings, symbol)
 
-    def costs(self) -> CostSpec:
-        return CostSpec(self.settings.costs.maker_fee, self.settings.costs.taker_fee)
+    def costs(self, symbol: str) -> CostSpec:
+        """Fee rates of ``symbol`` on the configured venue (``costs.venues`` schedule or the defaults)."""
+        i = self.settings.instrument(symbol)
+        return self.fees.for_instrument(
+            self.settings.market.venue, symbol, ticker=i.base, instrument_uid=i.instrument_uid
+        )
 
     def params(self, strategy: Strategy, raw: dict[str, Any]) -> StrategyParams:
         defaults = self.settings.strategy_settings(strategy.name).defaults
@@ -181,6 +187,7 @@ class Orchestrator:
                 to_ns(spec.start),
                 to_ns(spec.end),
                 self.settings.bar_interval_ns,
+                self.settings.market.calendar(),
             )
         return bundle
 
@@ -226,7 +233,7 @@ class Orchestrator:
                 instrument=inst,
                 bars=bundle.bars,
                 bar_interval_ns=s.bar_interval_ns,
-                costs=self.costs(),
+                costs=self.costs(symbol),
                 initial_cash=s.account.initial_cash,
                 seed=spec.seed,
                 tape=bundle.tape,

@@ -1,0 +1,31 @@
+# Optional crypto profile (BT_PROFILE=crypto), merged over config/settings.yaml. It restores the
+# synthetic BTC/ETH perpetual market of the first version: venue SYNTH, 24/7 trading, the default
+# costs.maker_fee/taker_fee. Off by default; the platform targets MOEX (spec revision 2026-10-29).
+market:
+  venue: SYNTH
+  session: null
+  seconds_per_year: 31536000          # crypto trades 24/7
+  seconds_per_day: 86400
+  default_universe: [BTC-USDT-PERP]
+  instruments:
+    BTC-USDT-PERP: {base: BTC, quote: USDT, tick_size: 0.1, lot_size: 0.001, price_precision: 1, size_precision: 3}
+    ETH-USDT-PERP: {base: ETH, quote: USDT, tick_size: 0.01, lot_size: 0.01, price_precision: 2, size_precision: 2}
+
+synthetic:
+  start: "2026-01-05T00:00:00Z"
+  n_bars: 2880
+  initial_price: 60000.0
+  vol_bps_per_sqrt_s: 1.2
+  half_spread_ticks: 1
+  max_extra_spread_ticks: 2
+  level_size_mean: 1.5
+  trade_rate_per_s: 0.8
+  trade_size_mean: 0.05
+  fills:
+    venue: SYNTH
+    half_spread_bps: 0.4
+    qty_mean: 0.5
+    order_spacing_s: 20
+
+experiments:
+  n_bars: 1440

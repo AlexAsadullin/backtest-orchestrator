@@ -59,8 +59,17 @@ def _currency(code: str) -> Currency:
         return Currency(code, 8, 0, code, CurrencyType.CRYPTO)
 
 
+def nautilus_venue(name: str) -> Venue:
+    """Nautilus venue id for a platform venue name.
+
+    Nautilus derives the account id as ``<venue>-<n>`` and splits it at the first hyphen, so a hyphenated
+    name such as ``moex-tbank`` fails its account-issuer check; hyphens become underscores.
+    """
+    return Venue(name.replace("-", "_"))
+
+
 def build_instrument(spec: InstrumentSpec, maker_fee: float, taker_fee: float) -> CurrencyPair:
-    venue = Venue(spec.venue)
+    venue = nautilus_venue(spec.venue)
     return CurrencyPair(
         instrument_id=InstrumentId(Symbol(spec.symbol), venue),
         raw_symbol=Symbol(spec.symbol),
